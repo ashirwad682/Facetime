@@ -190,14 +190,14 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.onnegotiationneeded = async () => {
-      if (isNegotiating.current) return;
+      if (isNegotiating.current || pc.signalingState !== 'stable') return;
       isNegotiating.current = true;
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         emit('renegotiate-offer', { to: recipientId, offer, from: user._id });
       } catch (err) {
-        console.error(err);
+        console.error("Negotiation error:", err);
       } finally {
         isNegotiating.current = false;
       }
@@ -223,17 +223,18 @@ export const CallProvider = ({ children }) => {
 
     const pc = createPeerConnection(recipientId);
 
-    stream.getTracks().forEach(track => {
-      pc.addTrack(track, stream);
-    });
-
-    // Create and send offer immediately
+    // Lock negotiation while adding tracks and creating initial offer
+    isNegotiating.current = true;
     try {
+      stream.getTracks().forEach(track => {
+        pc.addTrack(track, stream);
+      });
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
       const eventName = isReconnect ? 'silent-reconnect' : 'incoming-call';
-      console.log(`%cEMITTING SIGNAL: ${eventName}`, 'color: #007AFF; font-weight: bold;', { to: recipientId, from: user._id });
+      console.log(`%c[Pusher] EMITTING SIGNAL: ${eventName}`, 'color: #007AFF; font-weight: bold;', { to: recipientId, from: user._id });
       
       emit(eventName, {
         to: recipientId,
@@ -243,6 +244,8 @@ export const CallProvider = ({ children }) => {
       });
     } catch (err) {
       console.error("Failed to create offer or emit signal:", err);
+    } finally {
+      isNegotiating.current = false;
     }
   };
 
