@@ -9,8 +9,10 @@ const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:stun.voiparound.com' },
-    { urls: 'stun:stun.actionvoip.com' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
   ]
 };
 
@@ -47,7 +49,13 @@ export const CallProvider = ({ children }) => {
 
   const peerConnection = useRef(null);
   const isNegotiating = useRef(false);
-  // Single MediaStream accumulator for remote tracks.
+  
+  // Polite Peer logic to prevent Glare conditions
+  const makingOffer = useRef(false);
+  const ignoreOffer = useRef(false);
+  const isSettingRemoteAnswerPending = useRef(false);
+  const polite = useRef(false); // We'll set this based on ID comparison
+
   const remoteStreamRef = useRef(null);
   // ICE candidate queue to solve race conditions where candidates arrive
   // before the remote description is set.
@@ -139,36 +147,66 @@ export const CallProvider = ({ children }) => {
       }
     };
 
+    const handleIceCandidate = async ({ candidate }) => {
+      try {
+        if (peerConnection.current && peerConnection.current.remoteDescription && peerConnection.current.remoteDescription.type) {
+          await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          iceCandidatesQueue.current.push(candidate);
+        }
+      } catch (e) {
+        if (!ignoreOffer.current) {
+          console.warn('[WebRTC] Unhandled ICE error:', e);
+        }
+      }
+    };
+
     const handleRenegotiateOffer = async ({ offer, from }) => {
-      if (peerConnection.current) {
-        try {
-          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
-          await processIceQueue();
-          const answer = await peerConnection.current.createAnswer();
-          await peerConnection.current.setLocalDescription(answer);
-          emit('renegotiate-answer', { to: from || remoteUserId, answer });
-        } catch (e) { }
+      if (!peerConnection.current) return;
+      
+      const readyForOffer = !makingOffer.current &&
+        (peerConnection.current.signalingState === 'stable' || isSettingRemoteAnswerPending.current);
+      
+      const offerCollision = !readyForOffer;
+      ignoreOffer.current = offerCollision && !polite.current;
+      
+      if (ignoreOffer.current) {
+        console.warn('[WebRTC] Ignoring negotiation offer (collision/impolite)');
+        return;
+      }
+
+      try {
+        isSettingRemoteAnswerPending.current = true;
+        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
+        isSettingRemoteAnswerPending.current = false;
+        await processIceQueue();
+        
+        const answer = await peerConnection.current.createAnswer();
+        const mangledAnswer = {
+          type: answer.type,
+          sdp: setBitrate(answer.sdp)
+        };
+        await peerConnection.current.setLocalDescription(mangledAnswer);
+        emit('renegotiate-answer', { to: from || remoteUserId, answer: mangledAnswer });
+      } catch (err) {
+        console.error('[WebRTC] Renegotiation error:', err);
       }
     };
 
     const handleRenegotiateAnswer = async ({ answer }) => {
       if (peerConnection.current) {
-        try { await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); } catch (e) { }
+        try { 
+          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); 
+          await processIceQueue();
+        } catch (e) { }
       }
     };
-
-    const handleIceCandidate = async ({ candidate }) => {
-      if (peerConnection.current && peerConnection.current.remoteDescription && peerConnection.current.remoteDescription.type) {
-        try {
-          console.log('[WebRTC] Applying ICE candidate immediately');
-          await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.warn('[WebRTC] Error adding ICE candidate immediately:', e);
-        }
-      } else {
-        console.log('[WebRTC] Queuing ICE candidate (remote description not ready)');
-        iceCandidatesQueue.current.push(candidate);
-      }
+    
+    // Help limit SDP bitrate to improve cellular connection success
+    const setBitrate = (sdp) => {
+      const parts = sdp.split('b=AS:');
+      if (parts.length > 1) return sdp; // already set
+      return sdp.replace(/a=mid:video\r\n/g, 'a=mid:video\r\nb=AS:500\r\n');
     };
 
     const handleCallEnded = () => {
@@ -231,9 +269,10 @@ export const CallProvider = ({ children }) => {
     const pc = new RTCPeerConnection(rtcConfig);
     peerConnection.current = pc;
     isNegotiating.current = false;
+    
+    // As per polite peer pattern
+    polite.current = user._id < recipientId;
 
-    // Explicitly add transceivers to ensure media direction is set correctly
-    // This is much more robust on mobile than addTrack alone.
     if (pc.addTransceiver) {
       pc.addTransceiver('audio', { direction: 'sendrecv' });
       pc.addTransceiver('video', { direction: 'sendrecv' });
@@ -241,21 +280,35 @@ export const CallProvider = ({ children }) => {
 
     pc.oniceconnectionstatechange = () => {
       console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
-      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-        console.warn('[WebRTC] Connection failing, might need TURN server');
-      }
     };
 
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
-      if (pc.connectionState === 'connected') {
-        // Fallback: If after 5 seconds of connection we have no tracks, force renegotiation
-        setTimeout(() => {
-          if (remoteStreams.length === 0 && !callEnded && peerConnection.current) {
-            console.warn('[WebRTC] Connected but no tracks received. Triggering renegotiation fallback...');
-            if (pc.onnegotiationneeded) pc.onnegotiationneeded();
-          }
-        }, 5000);
+    };
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        makingOffer.current = true;
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        if (pc.signalingState !== 'stable') return;
+        
+        const mangledOffer = {
+          type: offer.type,
+          sdp: setBitrate(offer.sdp)
+        };
+        
+        await pc.setLocalDescription(mangledOffer);
+        const eventName = remoteUserId ? 'renegotiate-offer' : 'incoming-call';
+        emit(eventName, { 
+          to: recipientId, 
+          offer: mangledOffer,
+          from: user._id,
+          callerName: user.name
+        });
+      } catch (err) {
+        console.error('[WebRTC] Negotiation offer error:', err);
+      } finally {
+        makingOffer.current = false;
       }
     };
 
@@ -269,7 +322,7 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] ontrack fired: ${event.track.kind}. Total tracks now in stream: ${remoteStreamRef.current ? remoteStreamRef.current.getTracks().length + 1 : 1}`);
+      console.log(`[WebRTC] ontrack fired: ${event.track.kind}. Total remote tracks: ${remoteStreamRef.current ? remoteStreamRef.current.getTracks().length + 1 : 1}`);
 
       if (!remoteStreamRef.current) {
         remoteStreamRef.current = new MediaStream();
@@ -292,25 +345,9 @@ export const CallProvider = ({ children }) => {
         }
       }
 
-      // VERY IMPORTANT: Create a NEW MediaStream object from the accumulated tracks.
-      // This ensures that the stream reference and ID change, which triggers
-      // React components (like VideoPlayer) to re-mount and re-initialize playback.
+      // Force a new MediaStream reference for React state
       const freshStream = new MediaStream(stream.getTracks());
       setRemoteStreams([freshStream]);
-    };
-
-    pc.onnegotiationneeded = async () => {
-      if (isNegotiating.current || pc.signalingState !== 'stable') return;
-      isNegotiating.current = true;
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        emit('renegotiate-offer', { to: recipientId, offer, from: user._id });
-      } catch (err) {
-        console.error("Negotiation error:", err);
-      } finally {
-        isNegotiating.current = false;
-      }
     };
 
     setRemoteStreams([]);
