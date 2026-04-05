@@ -9,7 +9,9 @@ const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' }
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.anyfirewall.com:3478' },
+    { urls: 'stun:stun.stunprotocol.org:3478' },
   ],
   iceCandidatePoolSize: 10,
 };
@@ -44,7 +46,18 @@ export const CallProvider = ({ children }) => {
   const iceCandidatesQueue = useRef([]);
 
   const setBitrate = (sdp) => {
-    return sdp.replace(/a=mid:video\r\n/g, 'a=mid:video\r\nb=AS:500\r\n');
+    // Priority for H264 on mobile (iOS/Android)
+    let mangled = sdp.replace(/a=mid:video\r\n/g, 'a=mid:video\r\nb=AS:500\r\n');
+    if (mangled.includes('H264/90000')) {
+      const parts = mangled.split('m=video');
+      const lines = parts[1].split('\r\n');
+      const h264Line = lines.find(l => l.includes('H264/90000'));
+      if (h264Line) {
+        const pt = h264Line.split(' ')[0].split(':')[1];
+        mangled = mangled.replace(`m=video 9 UDP/TLS/RTP/SAVPF`, `m=video 9 UDP/TLS/RTP/SAVPF ${pt}`);
+      }
+    }
+    return mangled;
   };
 
   useEffect(() => {
@@ -205,15 +218,38 @@ export const CallProvider = ({ children }) => {
     return pc;
   };
 
-  const callUser = async (id) => {
+  const callUser = async (id, isReconnect = false) => {
     setRemoteUserId(id);
     setIsInitiator(true);
     const stream = await initLocalStream();
     if (!stream) return;
     setCallEnded(false);
     setCallAccepted(false);
+
+    // Close previous connection if any
+    if (peerConnection.current) {
+      peerConnection.current.close();
+    }
+
     const pc = createPeerConnection(id);
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    
+    // Use transceivers for better control on mobile
+    pc.addTransceiver('audio', { direction: 'sendrecv' });
+    pc.addTransceiver('video', { direction: 'sendrecv' });
+
+    const videoTrack = stream.getVideoTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0];
+    
+    const transceivers = pc.getTransceivers();
+    const aTrans = transceivers.find(t => t.receiver.track.kind === 'audio');
+    const vTrans = transceivers.find(t => t.receiver.track.kind === 'video');
+    
+    if (aTrans && audioTrack) await aTrans.sender.replaceTrack(audioTrack);
+    if (vTrans && videoTrack) await vTrans.sender.replaceTrack(videoTrack);
+    
+    if (isReconnect) {
+      console.log("[WebRTC] Triggering Reconnect session");
+    }
   };
 
   const answerCall = async () => {
@@ -223,9 +259,19 @@ export const CallProvider = ({ children }) => {
     if (!stream) return;
     const pc = createPeerConnection(callerInfo.from);
     
-    // We add tracks BEFORE setting remote description and sending answer
-    // This ensures the Responder's tracks are included in the very first Answer SDP
-    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+    // Use transceivers for better control on mobile
+    pc.addTransceiver('audio', { direction: 'sendrecv' });
+    pc.addTransceiver('video', { direction: 'sendrecv' });
+
+    const videoTrack = stream.getVideoTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0];
+    
+    const transceivers = pc.getTransceivers();
+    const aTrans = transceivers.find(t => t.receiver.track.kind === 'audio');
+    const vTrans = transceivers.find(t => t.receiver.track.kind === 'video');
+    
+    if (aTrans && audioTrack) await aTrans.sender.replaceTrack(audioTrack);
+    if (vTrans && videoTrack) await vTrans.sender.replaceTrack(videoTrack);
 
     try {
       isSettingRemoteAnswerPending.current = true;
