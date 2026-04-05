@@ -6,26 +6,38 @@ export const SocketContext = createContext();
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  const { user } = useContext(AuthContext);
+  const { user, token } = useContext(AuthContext);
 
   useEffect(() => {
-    if (user) {
+    if (user && token) {
       const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
-      const newSocket = io(apiBase);
+      
+      // Heartbeat pulse every 30 seconds
+      const heartbeatInterval = setInterval(() => {
+        fetch(`${apiBase}/api/users/heartbeat`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}` }
+        }).catch(err => console.error("Heartbeat failed:", err));
+      }, 30000);
+
+      const newSocket = io(apiBase, {
+        transports: ['polling', 'websocket'],
+        reconnectionAttempts: 10,
+        reconnectionDelay: 5000,
+      });
+      
       setSocket(newSocket);
 
       newSocket.on('connect', () => {
         newSocket.emit('register-user', user._id);
       });
 
-      newSocket.on('online-users', (users) => {
-        setOnlineUsers(users);
-      });
-
-      return () => newSocket.close();
+      return () => {
+        clearInterval(heartbeatInterval);
+        newSocket.close();
+      };
     }
-  }, [user]);
+  }, [user, token]);
 
   return (
     <SocketContext.Provider value={{ socket, onlineUsers }}>

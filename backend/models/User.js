@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String }, // Optional for OAuth
   googleId: { type: String, unique: true, sparse: true },
+  lastSeen: { type: Date, default: Date.now },
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {
