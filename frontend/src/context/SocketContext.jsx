@@ -53,10 +53,18 @@ export const SocketProvider = ({ children }) => {
       const pChannel = client.subscribe(`private-user-${user._id}`);
       setPrivateChannel(pChannel);
 
+      pChannel.bind('pusher:subscription_succeeded', () => {
+        console.log(`%c[Pusher] SUBSCRIPTION SUCCESS: ${pChannel.name}`, 'color: #34C759; font-weight: bold;');
+      });
+
+      pChannel.bind('pusher:subscription_error', (status) => {
+        console.error(`%c[Pusher] SUBSCRIPTION ERROR: ${pChannel.name}`, 'color: #FF3B30; font-weight: bold;', status);
+      });
+
       // Global Signaling Activity Feed (Live Diagnostic)
       pChannel.bind_global((event, data) => {
         if (!event.startsWith('pusher:')) {
-          console.log(`%cRECEIVED SIGNAL: ${event}`, 'color: #34C759; font-weight: bold;', data);
+          console.log(`%c[Pusher] RECEIVED SIGNAL: ${event}`, 'color: #34C759; font-weight: bold;', data);
         }
       });
 

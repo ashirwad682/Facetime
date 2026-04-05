@@ -49,6 +49,7 @@ export const CallProvider = ({ children }) => {
     if (!privateChannel) return;
 
     const handleIncomingCall = ({ from, callerName, offer }) => {
+      console.log(`%c[CallContext] INCOMING CALL from: ${callerName} (${from})`, 'color: #FF9500; font-weight: bold;');
       setReceivingCall(true);
       setCallerInfo({ from, callerName, offer });
       setRemoteUserId(from);

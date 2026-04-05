@@ -114,10 +114,18 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-app.post('/api/pusher/trigger', (req, res) => {
+app.post('/api/pusher/trigger', async (req, res) => {
   const { channel, event, data } = req.body;
-  pusher.trigger(channel, event, data);
-  res.json({ success: true });
+  
+  try {
+    // Await the trigger to ensure it was successfully accepted by Pusher
+    const response = await pusher.trigger(channel, event, data);
+    console.log(`[Pusher Trigger SUCCESS] Event: ${event} -> Channel: ${channel}`);
+    res.json({ success: true, response });
+  } catch (error) {
+    console.error(`[Pusher Trigger ERROR] Failed for event ${event} on channel ${channel}:`, error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
 const PORT = process.env.PORT || 5001;
