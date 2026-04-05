@@ -100,7 +100,10 @@ export const CallProvider = ({ children }) => {
         const mangled = { type: answer.type, sdp: setBitrate(answer.sdp) };
         await pc.setLocalDescription(mangled);
         emit('renegotiate-answer', { to: from, answer: mangled });
-      } catch (err) { console.error("Renegotiate error", err); }
+      } catch (err) { 
+        console.error("Renegotiate error", err);
+        isSettingRemoteAnswerPending.current = false;
+      }
     };
 
     const handleRenegotiateAnswer = async ({ answer }) => {
@@ -157,16 +160,34 @@ export const CallProvider = ({ children }) => {
     polite.current = user._id < recipientId;
 
     pc.onnegotiationneeded = async () => {
+      // In Perfect Negotiation, the Responder (impolite) should never initiate 
+      // a negotiation while a remote offer is still being processed.
+      if (isSettingRemoteAnswerPending.current) return;
+      
       try {
+        console.log('[WebRTC] Negotiation needed, creating offer...');
         makingOffer.current = true;
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         if (pc.signalingState !== 'stable') return;
+        
         const mangled = { type: offer.type, sdp: setBitrate(offer.sdp) };
         await pc.setLocalDescription(mangled);
+        
+        // If the call hasn't been accepted yet, this is the very first 'Incoming Call'
+        // If it has been accepted, this is a renegotiation (e.g. screen share)
         const eventName = callAccepted ? 'renegotiate-offer' : 'incoming-call';
-        emit(eventName, { to: recipientId, offer: mangled, from: user._id, callerName: user.name });
-      } catch (err) { console.error("Negotiation error", err); }
-      finally { makingOffer.current = false; }
+        
+        emit(eventName, { 
+          to: recipientId, 
+          offer: mangled, 
+          from: user._id, 
+          callerName: user.name 
+        });
+      } catch (err) { 
+        console.error("Negotiation error", err); 
+      } finally { 
+        makingOffer.current = false; 
+      }
     };
 
     pc.onicecandidate = ({ candidate }) => {
@@ -201,13 +222,32 @@ export const CallProvider = ({ children }) => {
     const stream = await initLocalStream();
     if (!stream) return;
     const pc = createPeerConnection(callerInfo.from);
+    
+    // We add tracks BEFORE setting remote description and sending answer
+    // This ensures the Responder's tracks are included in the very first Answer SDP
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
-    await pc.setRemoteDescription(new RTCSessionDescription(callerInfo.offer));
-    await processIceQueue();
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    emit('call-answered', { to: callerInfo.from, answer });
-    navigate(`/call/${callerInfo.from}`);
+
+    try {
+      isSettingRemoteAnswerPending.current = true;
+      await pc.setRemoteDescription(new RTCSessionDescription(callerInfo.offer));
+      isSettingRemoteAnswerPending.current = false;
+      
+      await processIceQueue();
+      
+      const answer = await pc.createAnswer();
+      const mangled = { type: answer.type, sdp: setBitrate(answer.sdp) };
+      await pc.setLocalDescription(mangled);
+
+      emit('call-answered', { 
+        to: callerInfo.from, 
+        answer: mangled 
+      });
+      
+      navigate(`/call/${callerInfo.from}`);
+    } catch (err) {
+      console.error("Error answering call", err);
+      isSettingRemoteAnswerPending.current = false;
+    }
   };
 
   const declineCall = () => { setReceivingCall(false); emit('call-ended', { to: callerInfo.from }); };

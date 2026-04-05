@@ -14,9 +14,11 @@ export const SocketProvider = ({ children }) => {
   const pusherInstance = useRef(null);
 
   useEffect(() => {
-    if (user) {
-      const apiBase = getApiBase();
+    if (user && user._id) {
+      // Re-init protection: don't create a new Pusher if already running for the same user
+      if (pusherInstance.current && pusherInstance.current.user_id === user._id) return;
       
+      const apiBase = getApiBase();
       const pusherKey = import.meta.env.VITE_PUSHER_KEY || "c0389c21418ea0212407";
       const cluster = import.meta.env.VITE_PUSHER_CLUSTER || "ap2";
 
@@ -28,17 +30,9 @@ export const SocketProvider = ({ children }) => {
           params: {
             user_data: JSON.stringify(user)
           }
-        },
-        userAuthentication: {
-          paramsProvider: () => {
-            return { user_data: JSON.stringify(user) };
-          }
         }
       });
-
-      client.connection.bind('error', (err) => {
-        console.error("PUSHER CONNECTION ERROR (Live Diagnostic):", err);
-      });
+      client.user_id = user._id;
 
       client.connection.bind('state_change', (states) => {
         console.log(`PUSHER STATE: ${states.previous} -> ${states.current}`);
@@ -57,11 +51,7 @@ export const SocketProvider = ({ children }) => {
         console.log(`%c[Pusher] SUBSCRIPTION SUCCESS: ${pChannel.name}`, 'color: #34C759; font-weight: bold;');
       });
 
-      pChannel.bind('pusher:subscription_error', (status) => {
-        console.error(`%c[Pusher] SUBSCRIPTION ERROR: ${pChannel.name}`, 'color: #FF3B30; font-weight: bold;', status);
-      });
-
-      // Global Signaling Activity Feed (Live Diagnostic)
+      // Global Signaling Activity Feed
       pChannel.bind_global((event, data) => {
         if (!event.startsWith('pusher:')) {
           console.log(`%c[Pusher] RECEIVED SIGNAL: ${event}`, 'color: #34C759; font-weight: bold;', data);
@@ -83,13 +73,16 @@ export const SocketProvider = ({ children }) => {
       });
 
       return () => {
-        client.unsubscribe('presence-facetime');
-        client.disconnect();
+        if (pusherInstance.current) {
+          pusherInstance.current.unsubscribe('presence-facetime');
+          pusherInstance.current.unsubscribe(`private-user-${user._id}`);
+          pusherInstance.current.disconnect();
+          pusherInstance.current = null;
+        }
       };
     }
-  }, [user]);
+  }, [user?._id]); // Only re-run if USER ID changes, not the whole user object
 
-  // Helper to trigger events via backend REST API
   const emit = async (event, data) => {
     const apiBase = getApiBase();
     try {
@@ -102,13 +95,15 @@ export const SocketProvider = ({ children }) => {
           data: { ...data, from: user._id, callerName: user.name }
         })
       });
-    } catch (err) {
-      console.error("Pusher trigger error:", err);
-    }
+    } catch (err) { }
   };
 
+  const contextValue = React.useMemo(() => ({
+    pusher, presenceChannel, privateChannel, onlineUsers, emit
+  }), [pusher, presenceChannel, privateChannel, onlineUsers, user?._id]);
+
   return (
-    <SocketContext.Provider value={{ pusher, presenceChannel, privateChannel, onlineUsers, emit }}>
+    <SocketContext.Provider value={contextValue}>
       {children}
     </SocketContext.Provider>
   );

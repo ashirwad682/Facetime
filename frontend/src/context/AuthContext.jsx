@@ -75,8 +75,12 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
   };
 
+  const value = React.useMemo(() => ({
+    user, token, login, googleLogin, logout, loading
+  }), [user, token, loading]);
+
   return (
-    <AuthContext.Provider value={{ user, token, login, googleLogin, logout, loading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

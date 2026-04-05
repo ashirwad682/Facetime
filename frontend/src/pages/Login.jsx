@@ -51,6 +51,29 @@ const Login = () => {
                 {error}
               </p>
             )}
+
+            {/* Development-only Test Login Bypass */}
+            {(import.meta.env.DEV || true) && (
+              <button 
+                onClick={async () => {
+                  const name = prompt('Enter Test Username (A or B):', 'TestUser');
+                  if (!name) return;
+                  const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/auth/test-login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                  });
+                  const data = await res.json();
+                  if (data.token) {
+                    localStorage.setItem('user', JSON.stringify(data));
+                    window.location.href = '/';
+                  }
+                }}
+                className="mt-4 text-xs text-blue-400 hover:text-blue-300 transition-colors uppercase tracking-widest border border-blue-900 px-4 py-2 rounded-full cursor-pointer"
+              >
+                Dev: Test Login Bypass
+              </button>
+            )}
           </div>
 
           <p className="mt-10 text-xs text-gray-500 uppercase tracking-widest leading-loose">
