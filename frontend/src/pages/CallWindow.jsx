@@ -58,6 +58,9 @@ const CallWindow = () => {
   const messagesEndRef = useRef(null);
   const hideTimerRef = useRef(null);
 
+  // Detect touch device for conditional rendering
+  const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
   // Initiate / reconnect call
   useEffect(() => {
     if (!state?.incoming && !callAccepted) {
@@ -134,6 +137,11 @@ const CallWindow = () => {
     setShowControls(true);
   };
 
+  // Mobile tap shows controls (mouse events don't fire reliably on touch)
+  const handleTouch = () => {
+    setShowControls(true);
+  };
+
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
@@ -190,8 +198,17 @@ const CallWindow = () => {
     );
   };
 
+  // Safe PiP drag constraints computed lazily so they always match real viewport
+  const getPipConstraints = () => {
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 700;
+    const pipW = vw < 480 ? 112 : 224; // matches w-28 vs w-56
+    const pipH = vw < 480 ? 160 : 320;
+    return { top: 10, left: 10, right: Math.max(0, vw - pipW - 20), bottom: Math.max(0, vh - pipH - 20) };
+  };
+
   return (
-    <div className="call-container" onClick={handleUserInteraction} onMouseMove={handleUserInteraction}>
+    <div className="call-container" onClick={handleUserInteraction} onMouseMove={handleUserInteraction} onTouchStart={handleTouch}>
       {/* Status banner */}
       <motion.div
         className="status-banner"
@@ -224,8 +241,9 @@ const CallWindow = () => {
       {/* Local PiP video */}
       <motion.div
         drag
-        dragConstraints={{ top: 20, left: 20, right: typeof window !== 'undefined' ? window.innerWidth - 150 : 0, bottom: typeof window !== 'undefined' ? window.innerHeight - 250 : 0 }}
-        className="absolute top-24 right-6 w-32 h-44 sm:w-56 sm:h-80 bg-gray-900 rounded-3xl overflow-hidden shadow-2xl border border-mac-border/50 z-30 cursor-grab active:cursor-grabbing"
+        dragConstraints={getPipConstraints()}
+        dragElastic={0.1}
+        className="absolute top-24 right-4 sm:right-6 w-28 h-40 sm:w-56 sm:h-80 bg-gray-900 rounded-3xl overflow-hidden shadow-2xl border border-mac-border/50 z-30 cursor-grab active:cursor-grabbing touch-none"
       >
         {localStream ? (
           <VideoPlayer
@@ -261,13 +279,16 @@ const CallWindow = () => {
         >
           {isVideoMuted ? <VideoOff size={24} /> : <Video size={24} />}
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleScreenShare(); }}
-          aria-label={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
-          className={isScreenSharing ? 'bg-mac-accent text-white shadow-lg shadow-blue-500/20' : 'text-white hover:bg-white/10'}
-        >
-          {isScreenSharing ? <MonitorOff size={24} /> : <MonitorUp size={24} />}
-        </button>
+        {/* Screen share – only available on desktop browsers */}
+        {!isTouchDevice && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleScreenShare(); }}
+            aria-label={isScreenSharing ? 'Stop screen share' : 'Start screen share'}
+            className={isScreenSharing ? 'bg-mac-accent text-white shadow-lg shadow-blue-500/20' : 'text-white hover:bg-white/10'}
+          >
+            {isScreenSharing ? <MonitorOff size={24} /> : <MonitorUp size={24} />}
+          </button>
+        )}
 
         {/* End Call / Cancel Call button */}
         {(!isInitiator || !callAccepted) && (

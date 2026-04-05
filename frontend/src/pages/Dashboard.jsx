@@ -45,11 +45,11 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-black text-white">
       {/* Navbar */}
-      <nav className="backdrop-blur-md bg-mac-blur border-b border-mac-border px-6 py-4 flex justify-between items-center sticky top-0 z-50">
-        <h1 className="text-xl font-semibold">Aashirshiya</h1>
-        <div className="flex items-center gap-4">
-          <span className="text-gray-300">Hello, {user?.name}</span>
-          <button onClick={handleLogout} className="text-mac-red hover:text-red-400 p-2 rounded-full hover:bg-mac-gray transition">
+      <nav className="backdrop-blur-md bg-mac-blur border-b border-mac-border px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center sticky top-0 z-50">
+        <h1 className="text-lg sm:text-xl font-semibold shrink-0">Aashirshiya</h1>
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          <span className="text-gray-300 text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">Hello, {user?.name}</span>
+          <button onClick={handleLogout} className="text-mac-red hover:text-red-400 p-2 rounded-full hover:bg-mac-gray transition shrink-0">
             <LogOut size={20} />
           </button>
         </div>
