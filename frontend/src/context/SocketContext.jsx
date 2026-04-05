@@ -25,6 +25,7 @@ export const SocketProvider = ({ children }) => {
       const client = new Pusher(pusherKey, {
         cluster: cluster,
         authEndpoint: `${backendUrl}/api/pusher/auth`,
+        enabledTransports: ['ws', 'xhr_streaming', 'xhr_polling'],
         auth: {
           params: {
             user_data: JSON.stringify(user)
@@ -35,6 +36,14 @@ export const SocketProvider = ({ children }) => {
             return { user_data: JSON.stringify(user) };
           }
         }
+      });
+
+      client.connection.bind('error', (err) => {
+        console.error("PUSHER CONNECTION ERROR (Live Diagnostic):", err);
+      });
+
+      client.connection.bind('state_change', (states) => {
+        console.log(`PUSHER STATE: ${states.previous} -> ${states.current}`);
       });
 
       pusherInstance.current = client;

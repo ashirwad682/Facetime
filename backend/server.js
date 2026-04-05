@@ -37,11 +37,27 @@ app.use(async (req, res, next) => {
 });
 
 app.use(cors({
-  origin: ['https://facetime-7.vercel.app', 'http://localhost:5173', 'http://localhost:5001'],
-  credentials: true
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowed = [
+      'http://localhost:5173',
+      'http://localhost:5001'
+    ];
+    if (allowed.indexOf(origin) !== -1 || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Explicit OPTIONS handler for Pusher Auth Pre-flight
+app.options('/api/pusher/auth', cors());
 
 // Pusher Auth Route for Presence Channels (Online Status)
 app.post('/api/pusher/auth', (req, res) => {
