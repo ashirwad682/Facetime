@@ -94,7 +94,7 @@ export const CallProvider = ({ children }) => {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      emit('make-answer', { to: from, answer });
+      emit('call-answered', { to: from, answer });
       setCallAccepted(true);
       sessionStorage.setItem('activeCallWith', from);
     };
@@ -165,17 +165,15 @@ export const CallProvider = ({ children }) => {
     try {
       const constraints = {
         video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30, max: 60 },
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          frameRate: { ideal: 24, max: 30 },
           facingMode: 'user'
         },
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 48000,
-          channelCount: 2
+          autoGainControl: true
         }
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -224,8 +222,11 @@ export const CallProvider = ({ children }) => {
         }
       }
 
-      // Spread into a new array so React always detects the change and re-renders
-      setRemoteStreams([remoteStreamRef.current]);
+      // VERY IMPORTANT: Create a NEW MediaStream object from the accumulated tracks.
+      // This ensures that the stream reference and ID change, which triggers
+      // React components (like VideoPlayer) to re-mount and re-initialize playback.
+      const freshStream = new MediaStream(remoteStreamRef.current.getTracks());
+      setRemoteStreams([freshStream]);
     };
 
     pc.onnegotiationneeded = async () => {
