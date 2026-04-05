@@ -5,7 +5,7 @@ import { Mic, MicOff, Video, VideoOff, PhoneOff, MonitorUp, MonitorOff, MessageS
 import { motion, AnimatePresence } from 'framer-motion';
 
 // Video player component with rounded corners and drop‑shadow
-const VideoPlayer = ({ stream, className = '', muted = false, id }) => {
+const VideoPlayer = React.memo(({ stream, className = '', muted = false, id }) => {
   const videoRef = useRef();
   
   useEffect(() => {
@@ -13,12 +13,13 @@ const VideoPlayer = ({ stream, className = '', muted = false, id }) => {
     if (video && stream) {
       video.srcObject = stream;
       
-      // Critical for mobile: explicit play() call after setting srcObject
       const playVideo = async () => {
         try {
-          await video.play();
+          if (video.paused) await video.play();
         } catch (err) {
-          console.warn("[VideoPlayer] Autoplay blocked, waiting for interaction:", err);
+          if (err.name !== 'AbortError') {
+            console.warn("[VideoPlayer] Autoplay blocked:", err);
+          }
         }
       };
       playVideo();
@@ -34,10 +35,10 @@ const VideoPlayer = ({ stream, className = '', muted = false, id }) => {
       muted={muted}
       controls={false}
       disablePictureInPicture
-      className={`rounded-lg shadow-lg bg-black ${className}`}
+      className={`rounded-lg shadow-lg bg-black object-cover w-full h-full ${className}`}
     />
   );
-};
+});
 
 const CallWindow = () => {
   const { id } = useParams();
@@ -73,16 +74,19 @@ const CallWindow = () => {
   // Detect touch device for conditional rendering
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
+  const hasCalled = useRef(false);
+
   // Initiate / reconnect call
   useEffect(() => {
-    if (!state?.incoming && !callAccepted) {
+    if (!state?.incoming && !callAccepted && !hasCalled.current) {
+      hasCalled.current = true;
       if (state?.reconnect) {
         callUser(id, true);
       } else {
         callUser(id, false);
       }
     }
-  }, [id, state?.incoming, state?.reconnect]);
+  }, [id, state?.incoming, state?.reconnect, callAccepted]);
 
   // Auto‑scroll chat
   useEffect(() => {

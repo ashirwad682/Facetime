@@ -83,10 +83,19 @@ export const SocketProvider = ({ children }) => {
     }
   }, [user?._id]); // Only re-run if USER ID changes, not the whole user object
 
+  const lastEmit = useRef({ event: '', time: 0 });
+
   const emit = async (event, data) => {
+    // 🛡️ Signal Deduplication: stop the infinite negotiation flood
+    const now = Date.now();
+    if (lastEmit.current.event === event && (now - lastEmit.current.time < 800)) {
+       return; 
+    }
+    lastEmit.current = { event, time: now };
+
     const apiBase = getApiBase();
     try {
-      await fetch(`${apiBase}/api/pusher/trigger`, {
+      const response = await fetch(`${apiBase}/api/pusher/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -95,7 +104,12 @@ export const SocketProvider = ({ children }) => {
           data: { ...data, from: user._id, callerName: user.name }
         })
       });
-    } catch (err) { }
+      if (!response.ok) {
+        console.warn(`[Pusher] Signaling delivery failed (possible key mismatch): ${response.status}`);
+      }
+    } catch (err) { 
+      console.warn("[Pusher] Network error during signaling", err);
+    }
   };
 
   const contextValue = React.useMemo(() => ({
