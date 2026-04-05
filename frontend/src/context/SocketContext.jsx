@@ -55,6 +55,13 @@ export const SocketProvider = ({ children }) => {
       const pChannel = client.subscribe(`private-user-${user._id}`);
       setPrivateChannel(pChannel);
 
+      // Global Signaling Activity Feed (Live Diagnostic)
+      pChannel.bind_global((event, data) => {
+        if (!event.startsWith('pusher:')) {
+          console.log(`%cRECEIVED SIGNAL: ${event}`, 'color: #34C759; font-weight: bold;', data);
+        }
+      });
+
       channel.bind('pusher:subscription_succeeded', (members) => {
         const users = [];
         members.each((member) => users.push(member.id));

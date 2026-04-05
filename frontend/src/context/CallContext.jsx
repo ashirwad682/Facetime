@@ -114,7 +114,7 @@ export const CallProvider = ({ children }) => {
     };
 
     privateChannel.bind('incoming-call', handleIncomingCall);
-    privateChannel.bind('silent-reconnect-request', handleSilentReconnect);
+    privateChannel.bind('silent-reconnect', handleSilentReconnect);
     privateChannel.bind('call-answered', handleCallAnswered);
     privateChannel.bind('renegotiate-offer', handleRenegotiateOffer);
     privateChannel.bind('renegotiate-answer', handleRenegotiateAnswer);
@@ -124,7 +124,7 @@ export const CallProvider = ({ children }) => {
 
     return () => {
       privateChannel.unbind('incoming-call', handleIncomingCall);
-      privateChannel.unbind('silent-reconnect-request', handleSilentReconnect);
+      privateChannel.unbind('silent-reconnect', handleSilentReconnect);
       privateChannel.unbind('call-answered', handleCallAnswered);
       privateChannel.unbind('renegotiate-offer', handleRenegotiateOffer);
       privateChannel.unbind('renegotiate-answer', handleRenegotiateAnswer);
@@ -231,7 +231,7 @@ export const CallProvider = ({ children }) => {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const eventName = isReconnect ? 'silent-reconnect' : 'call-user';
+      const eventName = isReconnect ? 'silent-reconnect' : 'incoming-call';
       emit(eventName, {
         to: recipientId,
         offer,
@@ -262,7 +262,7 @@ export const CallProvider = ({ children }) => {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    emit('make-answer', {
+    emit('call-answered', {
       to: callerInfo.from,
       answer
     });
@@ -272,7 +272,7 @@ export const CallProvider = ({ children }) => {
 
   const declineCall = () => {
     setReceivingCall(false);
-    emit('end-call', { to: callerInfo.from });
+    emit('call-ended', { to: callerInfo.from });
   };
 
   const leaveCall = (emitEvent = true) => {
@@ -304,7 +304,7 @@ export const CallProvider = ({ children }) => {
 
   const endCall = (remoteId) => {
     if (remoteId) {
-      emit('end-call', { to: remoteId });
+      emit('call-ended', { to: remoteId });
     }
     leaveCall(false);
     navigate('/');
