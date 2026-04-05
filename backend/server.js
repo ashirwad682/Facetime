@@ -29,7 +29,11 @@ const io = new Server(server, {
     origin: process.env.FRONTEND_URL || '*',
     methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  allowEIO3: true,
+  transports: ['polling', 'websocket'],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 const userSocketMap = {};
@@ -117,4 +121,11 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 5001;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Only listen if not running in Vercel's serverless environment
+if (process.env.NODE_ENV !== 'production') {
+  server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+// Export for Vercel
+module.exports = app;
