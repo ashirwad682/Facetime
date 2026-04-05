@@ -46,9 +46,10 @@ export const CallProvider = ({ children }) => {
   const peerConnection = useRef(null);
   const isNegotiating = useRef(false);
   // Single MediaStream accumulator for remote tracks.
-  // event.streams is empty in many browser/mobile scenarios,
-  // so we build the stream manually from event.track.
   const remoteStreamRef = useRef(null);
+  // ICE candidate queue to solve race conditions where candidates arrive
+  // before the remote description is set.
+  const iceCandidatesQueue = useRef([]);
 
   useEffect(() => {
     // Notification API is not available on iOS Safari — guard before use
@@ -92,6 +93,7 @@ export const CallProvider = ({ children }) => {
       const pc = createPeerConnection(from);
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await processIceQueue();
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       emit('call-answered', { to: from, answer });
@@ -100,10 +102,29 @@ export const CallProvider = ({ children }) => {
     };
 
     const handleCallAnswered = async ({ answer }) => {
+      console.log('[WebRTC] Answer received, setting remote description');
       setCallAccepted(true);
       if (remoteUserId) sessionStorage.setItem('activeCallWith', remoteUserId);
       if (peerConnection.current) {
-        try { await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); } catch (e) { }
+        try { 
+          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); 
+          await processIceQueue();
+        } catch (e) {
+          console.error('[WebRTC] Error setting remote description (initiator):', e);
+        }
+      }
+    };
+
+    const processIceQueue = async () => {
+      if (!peerConnection.current || !peerConnection.current.remoteDescription) return;
+      console.log(`[WebRTC] Processing ${iceCandidatesQueue.current.length} queued candidates`);
+      while (iceCandidatesQueue.current.length > 0) {
+        const candidate = iceCandidatesQueue.current.shift();
+        try {
+          await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('[WebRTC] Error adding queued ICE candidate:', e);
+        }
       }
     };
 
@@ -111,6 +132,7 @@ export const CallProvider = ({ children }) => {
       if (peerConnection.current) {
         try {
           await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
+          await processIceQueue();
           const answer = await peerConnection.current.createAnswer();
           await peerConnection.current.setLocalDescription(answer);
           emit('renegotiate-answer', { to: from || remoteUserId, answer });
@@ -125,8 +147,16 @@ export const CallProvider = ({ children }) => {
     };
 
     const handleIceCandidate = async ({ candidate }) => {
-      if (peerConnection.current) {
-        try { await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) { }
+      if (peerConnection.current && peerConnection.current.remoteDescription && peerConnection.current.remoteDescription.type) {
+        try {
+          console.log('[WebRTC] Applying ICE candidate immediately');
+          await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('[WebRTC] Error adding ICE candidate immediately:', e);
+        }
+      } else {
+        console.log('[WebRTC] Queuing ICE candidate (remote description not ready)');
+        iceCandidatesQueue.current.push(candidate);
       }
     };
 
@@ -191,8 +221,16 @@ export const CallProvider = ({ children }) => {
     peerConnection.current = pc;
     isNegotiating.current = false;
 
-    // Reset the remote stream accumulator for this new connection
-    remoteStreamRef.current = new MediaStream();
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        console.warn('[WebRTC] Connection failing, might need TURN server');
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
+    };
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -249,6 +287,7 @@ export const CallProvider = ({ children }) => {
   };
 
   const callUser = async (recipientId, isReconnect = false) => {
+    iceCandidatesQueue.current = [];
     setRemoteUserId(recipientId);
     setIsInitiator(true);
     const stream = await initLocalStream();
@@ -307,6 +346,12 @@ export const CallProvider = ({ children }) => {
     });
 
     await pc.setRemoteDescription(new RTCSessionDescription(callerInfo.offer));
+    // Drain candidates received during the initiation phase
+    while (iceCandidatesQueue.current.length > 0) {
+      const candidate = iceCandidatesQueue.current.shift();
+      try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) { }
+    }
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -348,6 +393,7 @@ export const CallProvider = ({ children }) => {
     }
 
     setRemoteStreams([]);
+    iceCandidatesQueue.current = [];
     if (remoteStreamRef.current) {
       remoteStreamRef.current.getTracks().forEach(t => t.stop());
       remoteStreamRef.current = null;
