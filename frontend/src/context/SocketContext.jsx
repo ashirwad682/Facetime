@@ -11,7 +11,7 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (user) {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
       const newSocket = io(apiBase);
       setSocket(newSocket);
 

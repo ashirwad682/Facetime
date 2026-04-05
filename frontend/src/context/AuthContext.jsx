@@ -39,7 +39,8 @@ export const AuthProvider = ({ children }) => {
 
   const googleLogin = async (credential) => {
     try {
-      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : '');
+      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+      console.log("Attempting Google login via:", `${apiBase}/api/auth/google`);
       const res = await fetch(`${apiBase}/api/auth/google`, {
         method: 'POST',
         headers: {
@@ -49,7 +50,10 @@ export const AuthProvider = ({ children }) => {
       });
       const data = await res.json();
       if (res.ok) {
-        login(data, data.token);
+        // IMPORTANT: Ensure state is updated BEFORE returning success to trigger navigation
+        setUser(data.user || data); 
+        setToken(data.token);
+        localStorage.setItem('token', data.token);
         return { success: true };
       } else {
         return { success: false, message: data.message };

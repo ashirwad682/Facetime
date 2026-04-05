@@ -13,7 +13,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (token) {
-      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : '');
+      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
       fetch(`${apiBase}/api/users`, {
         headers: { Authorization: `Bearer ${token}` }
       })
