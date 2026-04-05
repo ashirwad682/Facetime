@@ -11,7 +11,7 @@ connectDB();
 const app = express();
 app.set('trust proxy', 1);
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: ['https://facetime-7.vercel.app', 'http://localhost:5173', 'http://localhost:5001'],
   credentials: true
 }));
 app.use(express.json());
@@ -27,7 +27,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || '*',
+    origin: ['https://facetime-7.vercel.app', 'http://localhost:5173', 'http://localhost:5001'],
     methods: ['GET', 'POST'],
     credentials: true
   },

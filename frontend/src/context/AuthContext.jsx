@@ -60,8 +60,11 @@ export const AuthProvider = ({ children }) => {
         return { success: false, message: data.message };
       }
     } catch (err) {
-      console.error("Google login fetch error:", err);
-      return { success: false, message: "Network error during Google sign-in" };
+      console.error("Google login fetch error details:", err);
+      return { 
+        success: false, 
+        message: `Network error: ${err.message}. Please check if the backend at ${apiBase} is running.` 
+      };
     }
   };
 
