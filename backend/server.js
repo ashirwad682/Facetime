@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const Pusher = require('pusher');
 const connectDB = require('./config/db');
 
 dotenv.config();
@@ -16,6 +17,14 @@ if (!process.env.MONGO_URI) {
 
 const app = express();
 app.set('trust proxy', 1);
+
+const pusher = new Pusher({
+  appId: process.env.PUSHER_APP_ID || "2137148",
+  key: process.env.PUSHER_KEY || "c0389c21418ea0212407",
+  secret: process.env.PUSHER_SECRET || "c10ca19b442e01c88e55",
+  cluster: process.env.PUSHER_CLUSTER || "ap2",
+  useTLS: true
+});
 
 // Middleware: BLOCK every request until DB is connected
 app.use(async (req, res, next) => {
@@ -32,6 +41,19 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+
+// Pusher Auth Route for Presence Channels (Online Status)
+app.post('/api/pusher/auth', (req, res) => {
+  const socketId = req.body.socket_id;
+  const channel = req.body.channel_name;
+  const user = JSON.parse(req.body.user_data);
+  
+  const auth = pusher.authenticate(socketId, channel, {
+    user_id: user._id,
+    user_info: { name: user.name, email: user.email }
+  });
+  res.send(auth);
+});
 
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
@@ -54,94 +76,17 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-const userSocketMap = {};
-
-io.on('connection', (socket) => {
-  console.log(`User connected via socket: ${socket.id}`);
-
-  socket.on('register-user', (userId) => {
-    userSocketMap[userId] = socket.id;
-    io.emit('online-users', Object.keys(userSocketMap));
-  });
-
-  socket.on('call-user', ({ to, offer, from, callerName }) => {
-    const receiverSocketId = userSocketMap[to];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('incoming-call', {
-        from,
-        callerName,
-        offer,
-      });
-    }
-  });
-
-  socket.on('silent-reconnect', ({ to, offer, from, callerName }) => {
-    const receiverSocketId = userSocketMap[to];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('silent-reconnect-request', {
-        from,
-        callerName,
-        offer,
-      });
-    }
-  });
-
-  socket.on('make-answer', ({ to, answer }) => {
-    const callerSocketId = userSocketMap[to];
-    if (callerSocketId) {
-      io.to(callerSocketId).emit('call-answered', { answer });
-    }
-  });
-
-  socket.on('renegotiate-offer', ({ to, offer, from }) => {
-    const receiverSocketId = userSocketMap[to];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('renegotiate-offer', { offer, from });
-    }
-  });
-
-  socket.on('renegotiate-answer', ({ to, answer }) => {
-    const callerSocketId = userSocketMap[to];
-    if (callerSocketId) {
-      io.to(callerSocketId).emit('renegotiate-answer', { answer });
-    }
-  });
-
-  socket.on('ice-candidate', ({ to, candidate }) => {
-    const receiverSocketId = userSocketMap[to];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('ice-candidate', { candidate });
-    }
-  });
-
-  socket.on('end-call', ({ to }) => {
-    const receiverSocketId = userSocketMap[to];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('call-ended');
-    }
-  });
-
-  socket.on('call-chat', ({ to, message, senderName }) => {
-    const receiverSocketId = userSocketMap[to];
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('call-chat', { message, senderName });
-    }
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`User disconnected via socket: ${socket.id}`);
-    const userId = Object.keys(userSocketMap).find(key => userSocketMap[key] === socket.id);
-    if (userId) {
-      delete userSocketMap[userId];
-      io.emit('online-users', Object.keys(userSocketMap));
-    }
-  });
+app.post('/api/pusher/trigger', (req, res) => {
+  const { channel, event, data } = req.body;
+  pusher.trigger(channel, event, data);
+  res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 5001;
 
 // Only listen if not running in Vercel's serverless environment
 if (process.env.NODE_ENV !== 'production') {
+  const server = http.createServer(app);
   server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 

@@ -32,7 +32,7 @@ export const CallProvider = ({ children }) => {
   // Chat integration
   const [chatMessages, setChatMessages] = useState([]);
 
-  const { socket } = useContext(SocketContext);
+  const { pusher, presenceChannel, privateChannel, onlineUsers, emit } = useContext(SocketContext);
   const { user } = useContext(AuthContext);
   const navigate = useNavigate();
 
@@ -46,104 +46,93 @@ export const CallProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (!socket) return;
+    if (!privateChannel) return;
 
-    socket.on('incoming-call', ({ from, callerName, offer }) => {
+    const handleIncomingCall = ({ from, callerName, offer }) => {
       setReceivingCall(true);
       setCallerInfo({ from, callerName, offer });
       setRemoteUserId(from);
       setIsInitiator(false);
-
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        if (Notification.permission === "granted") {
-          new Notification(`Incoming FaceTime call from ${callerName}`);
-        }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden' && Notification.permission === "granted") {
+        new Notification(`Incoming FaceTime call from ${callerName}`);
       }
-    });
+    };
 
-    socket.on('silent-reconnect-request', async ({ from, callerName, offer }) => {
+    const handleSilentReconnect = async ({ from, offer }) => {
       setRemoteUserId(from);
-
       const stream = await initLocalStream();
       if (!stream) return;
-
-      if (peerConnection.current) {
-        peerConnection.current.close();
-      }
-
+      if (peerConnection.current) peerConnection.current.close();
       const pc = createPeerConnection(from);
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-      });
-
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-
-      socket.emit('make-answer', { to: from, answer });
+      emit('make-answer', { to: from, answer });
       setCallAccepted(true);
       sessionStorage.setItem('activeCallWith', from);
-    });
+    };
 
-    socket.on('call-answered', async ({ answer }) => {
+    const handleCallAnswered = async ({ answer }) => {
       setCallAccepted(true);
       if (remoteUserId) sessionStorage.setItem('activeCallWith', remoteUserId);
       if (peerConnection.current) {
-        try {
-          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-        } catch (e) { }
+        try { await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); } catch (e) { }
       }
-    });
+    };
 
-    socket.on('renegotiate-offer', async ({ offer, from }) => {
+    const handleRenegotiateOffer = async ({ offer, from }) => {
       if (peerConnection.current) {
         try {
           await peerConnection.current.setRemoteDescription(new RTCSessionDescription(offer));
           const answer = await peerConnection.current.createAnswer();
           await peerConnection.current.setLocalDescription(answer);
-          socket.emit('renegotiate-answer', { to: from || remoteUserId, answer });
+          emit('renegotiate-answer', { to: from || remoteUserId, answer });
         } catch (e) { }
       }
-    });
+    };
 
-    socket.on('renegotiate-answer', async ({ answer }) => {
+    const handleRenegotiateAnswer = async ({ answer }) => {
       if (peerConnection.current) {
-        try {
-          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
-        } catch (e) { }
+        try { await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); } catch (e) { }
       }
-    });
+    };
 
-    socket.on('ice-candidate', async ({ candidate }) => {
+    const handleIceCandidate = async ({ candidate }) => {
       if (peerConnection.current) {
-        try {
-          await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error('Error adding ice candidate', e);
-        }
+        try { await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate)); } catch (e) { }
       }
-    });
+    };
 
-    socket.on('call-ended', () => {
+    const handleCallEnded = () => {
       leaveCall(false);
       navigate('/');
-    });
+    };
 
-    socket.on('call-chat', ({ message, senderName }) => {
+    const handleCallChat = ({ message, senderName }) => {
       setChatMessages(prev => [...prev, { senderName, message, id: Date.now() }]);
-    });
+    };
+
+    privateChannel.bind('incoming-call', handleIncomingCall);
+    privateChannel.bind('silent-reconnect-request', handleSilentReconnect);
+    privateChannel.bind('call-answered', handleCallAnswered);
+    privateChannel.bind('renegotiate-offer', handleRenegotiateOffer);
+    privateChannel.bind('renegotiate-answer', handleRenegotiateAnswer);
+    privateChannel.bind('ice-candidate', handleIceCandidate);
+    privateChannel.bind('call-ended', handleCallEnded);
+    privateChannel.bind('call-chat', handleCallChat);
 
     return () => {
-      socket.off('incoming-call');
-      socket.off('silent-reconnect-request');
-      socket.off('call-answered');
-      socket.off('renegotiate-offer');
-      socket.off('renegotiate-answer');
-      socket.off('ice-candidate');
-      socket.off('call-ended');
-      socket.off('call-chat');
+      privateChannel.unbind('incoming-call', handleIncomingCall);
+      privateChannel.unbind('silent-reconnect-request', handleSilentReconnect);
+      privateChannel.unbind('call-answered', handleCallAnswered);
+      privateChannel.unbind('renegotiate-offer', handleRenegotiateOffer);
+      privateChannel.unbind('renegotiate-answer', handleRenegotiateAnswer);
+      privateChannel.unbind('ice-candidate', handleIceCandidate);
+      privateChannel.unbind('call-ended', handleCallEnded);
+      privateChannel.unbind('call-chat', handleCallChat);
     };
-  }, [socket, navigate, remoteUserId]);
+  }, [privateChannel, navigate, remoteUserId]);
 
   const initLocalStream = async () => {
     if (localStream && localStream.active) return localStream;
@@ -180,7 +169,7 @@ export const CallProvider = ({ children }) => {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit('ice-candidate', {
+        emit('ice-candidate', {
           to: recipientId,
           candidate: event.candidate
         });
@@ -205,7 +194,7 @@ export const CallProvider = ({ children }) => {
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socket.emit('renegotiate-offer', { to: recipientId, offer, from: user._id });
+        emit('renegotiate-offer', { to: recipientId, offer, from: user._id });
       } catch (err) {
         console.error(err);
       } finally {
@@ -243,7 +232,7 @@ export const CallProvider = ({ children }) => {
       await pc.setLocalDescription(offer);
 
       const eventName = isReconnect ? 'silent-reconnect' : 'call-user';
-      socket.emit(eventName, {
+      emit(eventName, {
         to: recipientId,
         offer,
         from: user._id,
@@ -273,7 +262,7 @@ export const CallProvider = ({ children }) => {
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    socket.emit('make-answer', {
+    emit('make-answer', {
       to: callerInfo.from,
       answer
     });
@@ -283,7 +272,7 @@ export const CallProvider = ({ children }) => {
 
   const declineCall = () => {
     setReceivingCall(false);
-    socket.emit('end-call', { to: callerInfo.from });
+    emit('end-call', { to: callerInfo.from });
   };
 
   const leaveCall = (emitEvent = true) => {
@@ -315,7 +304,7 @@ export const CallProvider = ({ children }) => {
 
   const endCall = (remoteId) => {
     if (remoteId) {
-      socket.emit('end-call', { to: remoteId });
+      emit('end-call', { to: remoteId });
     }
     leaveCall(false);
     navigate('/');
@@ -406,7 +395,7 @@ export const CallProvider = ({ children }) => {
   const sendChatMessage = (message) => {
     if (message.trim() && remoteUserId) {
       setChatMessages(prev => [...prev, { senderName: 'You', message, id: Date.now(), isSelf: true }]);
-      socket.emit('call-chat', { to: remoteUserId, message, senderName: user.name });
+      emit('call-chat', { to: remoteUserId, message, senderName: user.name });
     }
   };
 

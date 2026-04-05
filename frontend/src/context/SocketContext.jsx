@@ -1,46 +1,84 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import Pusher from 'pusher-js';
 import { AuthContext } from './AuthContext';
 
 export const SocketContext = createContext();
 
 export const SocketProvider = ({ children }) => {
-  const [socket, setSocket] = useState(null);
-  const { user, token } = useContext(AuthContext);
+  const [pusher, setPusher] = useState(null);
+  const [presenceChannel, setPresenceChannel] = useState(null);
+  const [privateChannel, setPrivateChannel] = useState(null);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const { user } = useContext(AuthContext);
+  const pusherInstance = useRef(null);
 
   useEffect(() => {
-    if (user && token) {
+    if (user) {
       const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
       
-      // Heartbeat pulse every 30 seconds
-      const heartbeatInterval = setInterval(() => {
-        fetch(`${apiBase}/api/users/heartbeat`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` }
-        }).catch(err => console.error("Heartbeat failed:", err));
-      }, 30000);
+      const pusherKey = import.meta.env.VITE_PUSHER_KEY || "c0389c21418ea0212407";
+      const cluster = import.meta.env.VITE_PUSHER_CLUSTER || "ap2";
 
-      const newSocket = io(apiBase, {
-        transports: ['polling', 'websocket'],
-        reconnectionAttempts: 10,
-        reconnectionDelay: 5000,
+      const client = new Pusher(pusherKey, {
+        cluster: cluster,
+        authEndpoint: `${apiBase}/api/pusher/auth`,
+        auth: {
+          params: {
+            user_data: JSON.stringify(user)
+          }
+        }
       });
-      
-      setSocket(newSocket);
 
-      newSocket.on('connect', () => {
-        newSocket.emit('register-user', user._id);
+      pusherInstance.current = client;
+      setPusher(client);
+
+      const channel = client.subscribe('presence-facetime');
+      setPresenceChannel(channel);
+
+      const pChannel = client.subscribe(`private-user-${user._id}`);
+      setPrivateChannel(pChannel);
+
+      channel.bind('pusher:subscription_succeeded', (members) => {
+        const users = [];
+        members.each((member) => users.push(member.id));
+        setOnlineUsers(users);
+      });
+
+      channel.bind('pusher:member_added', (member) => {
+        setOnlineUsers((prev) => [...new Set([...prev, member.id])]);
+      });
+
+      channel.bind('pusher:member_removed', (member) => {
+        setOnlineUsers((prev) => prev.filter((id) => id !== member.id));
       });
 
       return () => {
-        clearInterval(heartbeatInterval);
-        newSocket.close();
+        client.unsubscribe('presence-facetime');
+        client.disconnect();
       };
     }
-  }, [user, token]);
+  }, [user]);
+
+  // Helper to trigger events via backend REST API
+  const emit = async (event, data) => {
+    const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+    try {
+      await fetch(`${apiBase}/api/pusher/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: `private-user-${data.to}`,
+          event: event,
+          data: { ...data, from: user._id, callerName: user.name }
+        })
+      });
+    } catch (err) {
+      console.error("Pusher trigger error:", err);
+    }
+  };
 
   return (
-    <SocketContext.Provider value={{ socket, onlineUsers }}>
+    <SocketContext.Provider value={{ pusher, presenceChannel, privateChannel, onlineUsers, emit }}>
       {children}
     </SocketContext.Provider>
   );

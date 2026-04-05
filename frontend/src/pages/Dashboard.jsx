@@ -6,40 +6,22 @@ import { LogOut, Video, Search } from 'lucide-react';
 
 const Dashboard = () => {
   const { user, logout, token } = useContext(AuthContext);
+  const { onlineUsers } = useContext(SocketContext);
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  const { socket } = useContext(SocketContext);
 
-  const fetchUsers = () => {
+  useEffect(() => {
     if (token) {
       const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
       fetch(`${apiBase}/api/users`, {
         headers: { Authorization: `Bearer ${token}` }
       })
         .then(res => res.json())
-        .then(data => {
-          if (Array.isArray(data)) setUsers(data);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
+        .then(data => setUsers(data))
+        .catch(console.error);
     }
-  };
-
-  useEffect(() => {
-    fetchUsers();
-    // Refresh user list every 10 seconds for real-time accuracy on Vercel
-    const interval = setInterval(fetchUsers, 10000);
-    return () => clearInterval(interval);
   }, [token]);
-
-  useEffect(() => {
-    if (socket) {
-      socket.on('online-users', fetchUsers);
-      return () => socket.off('online-users', fetchUsers);
-    }
-  }, [socket]);
 
   useEffect(() => {
     const activeRouteId = sessionStorage.getItem('activeCallWith');
@@ -93,20 +75,18 @@ const Dashboard = () => {
 
         <div className="space-y-4">
           {filteredUsers.map((u) => {
+            const isOnline = onlineUsers.includes(u._id);
             return (
               <div key={u._id} className="backdrop-blur-md bg-mac-blur border border-mac-border p-4 rounded-2xl flex items-center justify-between hover:bg-mac-gray transition group">
                 <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <img src={`https://ui-avatars.com/api/?name=${u.name}&background=6D28D9&color=fff&size=128`} alt={u.name} className="w-16 h-16 rounded-2xl object-cover border-2 border-white/10 group-hover:border-purple-500/50 transition-colors" />
-                    {u.isOnline && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 border-2 border-[#121212] rounded-full shadow-lg shadow-green-500/20"></span>
-                    )}
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold shadow-lg">
+                    {u.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold">{u.name}</h3>
                     <div className="flex items-center gap-2 text-sm text-gray-400">
-                      <span className={`w-2 h-2 rounded-full ${u.isOnline ? 'bg-mac-green shadow-[0_0_8px_#34C759]' : 'bg-gray-500'}`}></span>
-                      {u.isOnline ? 'Online' : 'Offline'}
+                      <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-mac-green shadow-[0_0_8px_#34C759]' : 'bg-gray-500'}`}></span>
+                      {isOnline ? 'Online' : 'Offline'}
                     </div>
                   </div>
                 </div>
