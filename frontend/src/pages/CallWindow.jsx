@@ -45,11 +45,9 @@ const CallWindow = () => {
     screenStream,
     isInitiator,
     isVideoMuted,
-    isAudioMuted: ctxAudioMuted,
-    isScreenSharing: ctxScreenSharing,
+    isAudioMuted,
   } = useContext(CallContext);
 
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isLowLight, setIsLowLight] = useState(false);
@@ -154,13 +152,11 @@ const CallWindow = () => {
   };
 
   const handleToggleAudio = () => {
-    const enabled = toggleAudio();
-    setIsAudioMuted(!enabled);
+    toggleAudio();
   };
 
   const handleToggleVideo = () => {
     toggleVideo();
-    // UI sync handled via isVideoMuted from context
   };
 
   const handleSendMessage = (e) => {

@@ -12,6 +12,11 @@ const rtcConfig = {
   ]
 };
 
+// Safe sessionStorage read that won't throw in strict privacy mode
+const safeSessionGet = (key) => {
+  try { return sessionStorage.getItem(key); } catch { return null; }
+};
+
 export const CallProvider = ({ children }) => {
   const [localStream, setLocalStream] = useState(null);
 
@@ -22,8 +27,10 @@ export const CallProvider = ({ children }) => {
   const [callerInfo, setCallerInfo] = useState({});
   const [callAccepted, setCallAccepted] = useState(false);
   const [callEnded, setCallEnded] = useState(false);
-  const [remoteUserId, setRemoteUserId] = useState(sessionStorage.getItem('activeCallWith'));
+  const [remoteUserId, setRemoteUserId] = useState(safeSessionGet('activeCallWith'));
   const [isInitiator, setIsInitiator] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(false);
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
 
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const screenStreamRef = useRef(null);
@@ -40,8 +47,15 @@ export const CallProvider = ({ children }) => {
   const isNegotiating = useRef(false);
 
   useEffect(() => {
-    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-      Notification.requestPermission();
+    // Notification API is not available on iOS Safari — guard before use
+    try {
+      if (typeof Notification !== 'undefined' &&
+          Notification.permission !== 'granted' &&
+          Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    } catch (e) {
+      // Silently ignore — notifications are not available on this platform
     }
   }, []);
 
@@ -54,8 +68,15 @@ export const CallProvider = ({ children }) => {
       setCallerInfo({ from, callerName, offer });
       setRemoteUserId(from);
       setIsInitiator(false);
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden' && Notification.permission === "granted") {
-        new Notification(`Incoming FaceTime call from ${callerName}`);
+      try {
+        if (typeof Notification !== 'undefined' &&
+            typeof document !== 'undefined' &&
+            document.visibilityState === 'hidden' &&
+            Notification.permission === 'granted') {
+          new Notification(`Incoming FaceTime call from ${callerName}`);
+        }
+      } catch (e) {
+        // Notifications not supported on this device
       }
     };
 
@@ -323,6 +344,7 @@ export const CallProvider = ({ children }) => {
       const audioTrack = localStream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
+        setIsAudioMuted(!audioTrack.enabled);
         return audioTrack.enabled;
       }
     }
@@ -334,6 +356,7 @@ export const CallProvider = ({ children }) => {
       const videoTrack = localStream.getVideoTracks().find(t => screenStreamRef.current ? !screenStreamRef.current.getVideoTracks().includes(t) : true);
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoMuted(!videoTrack.enabled);
         return videoTrack.enabled;
       }
     }
@@ -422,6 +445,8 @@ export const CallProvider = ({ children }) => {
       initLocalStream,
       toggleAudio,
       toggleVideo,
+      isVideoMuted,
+      isAudioMuted,
       isScreenSharing,
       toggleScreenShare,
       chatMessages,
