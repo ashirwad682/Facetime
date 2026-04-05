@@ -8,7 +8,9 @@ export const CallContext = createContext();
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' }
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:stun.voiparound.com' },
+    { urls: 'stun:stun.actionvoip.com' }
   ]
 };
 
@@ -91,7 +93,16 @@ export const CallProvider = ({ children }) => {
       if (!stream) return;
       if (peerConnection.current) peerConnection.current.close();
       const pc = createPeerConnection(from);
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+      const transceivers = pc.getTransceivers();
+      const audioTrans = transceivers.find(t => t.receiver.track.kind === 'audio');
+      const videoTrans = transceivers.find(t => t.receiver.track.kind === 'video');
+      
+      if (audioTrans && audioTrack) await audioTrans.sender.replaceTrack(audioTrack);
+      if (videoTrans && videoTrack) await videoTrans.sender.replaceTrack(videoTrack);
+
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       await processIceQueue();
       const answer = await pc.createAnswer();
@@ -195,9 +206,9 @@ export const CallProvider = ({ children }) => {
     try {
       const constraints = {
         video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 854, max: 1280 },
+          height: { ideal: 480, max: 720 },
+          frameRate: { ideal: 20, max: 24 },
           facingMode: 'user'
         },
         audio: {
@@ -326,9 +337,16 @@ export const CallProvider = ({ children }) => {
     // Lock negotiation while adding tracks and creating initial offer
     isNegotiating.current = true;
     try {
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-      });
+      // Correct way to add tracks with transceivers: use replaceTrack
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+      
+      const transceivers = pc.getTransceivers();
+      const audioTransceiver = transceivers.find(t => t.receiver.track.kind === 'audio');
+      const videoTransceiver = transceivers.find(t => t.receiver.track.kind === 'video');
+      
+      if (audioTransceiver && audioTrack) await audioTransceiver.sender.replaceTrack(audioTrack);
+      if (videoTransceiver && videoTrack) await videoTransceiver.sender.replaceTrack(videoTrack);
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -362,9 +380,16 @@ export const CallProvider = ({ children }) => {
     }
     const pc = createPeerConnection(callerInfo.from);
 
-    stream.getTracks().forEach(track => {
-      pc.addTrack(track, stream);
-    });
+    // Correct way to add tracks with transceivers: use replaceTrack
+    const videoTrack = stream.getVideoTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0];
+    
+    const transceivers = pc.getTransceivers();
+    const audioTransceiver = transceivers.find(t => t.receiver.track.kind === 'audio');
+    const videoTransceiver = transceivers.find(t => t.receiver.track.kind === 'video');
+    
+    if (audioTransceiver && audioTrack) await audioTransceiver.sender.replaceTrack(audioTrack);
+    if (videoTransceiver && videoTrack) await videoTransceiver.sender.replaceTrack(videoTrack);
 
     await pc.setRemoteDescription(new RTCSessionDescription(callerInfo.offer));
     // Drain candidates received during the initiation phase
