@@ -7,17 +7,26 @@ const connectDB = require('./config/db');
 
 dotenv.config();
 
-// Startup Diagnostic: Ensure DB endpoint is present
+// Startup Diagnostic logic remains, but connectDB() is now called per-request
 if (!process.env.MONGO_URI) {
   console.warn("WARNING: MONGO_URI is missing in environment variables. Falling back to localhost.");
 } else {
-  console.log("MONGO_URI detected. Initiating connection...");
+  console.log("MONGO_URI detected. Ready for first request.");
 }
-
-connectDB();
 
 const app = express();
 app.set('trust proxy', 1);
+
+// Middleware: BLOCK every request until DB is connected
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    res.status(503).json({ message: "Database connection failed. Please check your IP whitelist (0.0.0.0/0)." });
+  }
+});
+
 app.use(cors({
   origin: ['https://facetime-7.vercel.app', 'http://localhost:5173', 'http://localhost:5001'],
   credentials: true
