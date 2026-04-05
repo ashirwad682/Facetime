@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
+import { getApiBase } from '../utils/api';
 
 export const AuthContext = createContext();
 
@@ -9,7 +10,7 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (token) {
-      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+      const apiBase = getApiBase();
       console.log("Checking Auth State via:", `${apiBase}/api/users/profile`);
       fetch(`${apiBase}/api/users/profile`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -40,7 +41,7 @@ export const AuthProvider = ({ children }) => {
 
   const googleLogin = async (credential) => {
     try {
-      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+      const apiBase = getApiBase();
       console.log("Attempting Google login via:", `${apiBase}/api/auth/google`);
       const res = await fetch(`${apiBase}/api/auth/google`, {
         method: 'POST',

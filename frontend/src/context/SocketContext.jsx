@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import Pusher from 'pusher-js';
 import { AuthContext } from './AuthContext';
+import { getApiBase } from '../utils/api';
 
 export const SocketContext = createContext();
 
@@ -14,17 +15,14 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (user) {
-      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+      const apiBase = getApiBase();
       
       const pusherKey = import.meta.env.VITE_PUSHER_KEY || "c0389c21418ea0212407";
       const cluster = import.meta.env.VITE_PUSHER_CLUSTER || "ap2";
-      
-      // Force absolute backend URL to avoid Vercel relative path issues
-      const backendUrl = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
 
       const client = new Pusher(pusherKey, {
         cluster: cluster,
-        authEndpoint: `${backendUrl}/api/pusher/auth`,
+        authEndpoint: `${apiBase}/api/pusher/auth`,
         enabledTransports: ['ws', 'xhr_streaming', 'xhr_polling'],
         auth: {
           params: {
@@ -85,7 +83,7 @@ export const SocketProvider = ({ children }) => {
 
   // Helper to trigger events via backend REST API
   const emit = async (event, data) => {
-    const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+    const apiBase = getApiBase();
     try {
       await fetch(`${apiBase}/api/pusher/trigger`, {
         method: 'POST',

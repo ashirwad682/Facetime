@@ -96,7 +96,15 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: ['https://facetime-7.vercel.app', 'http://localhost:5173', 'http://localhost:5001'],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const allowed = ['http://localhost:5173', 'http://localhost:5001'];
+      if (allowed.indexOf(origin) !== -1 || origin.endsWith('.vercel.app')) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ['GET', 'POST'],
     credentials: true
   },

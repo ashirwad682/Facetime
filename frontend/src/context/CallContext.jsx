@@ -226,19 +226,23 @@ export const CallProvider = ({ children }) => {
       pc.addTrack(track, stream);
     });
 
-    // We intentionally delay creating the initial offer specifically to avoid racing with onnegotiationneeded
-    setTimeout(async () => {
+    // Create and send offer immediately
+    try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
       const eventName = isReconnect ? 'silent-reconnect' : 'incoming-call';
+      console.log(`%cEMITTING SIGNAL: ${eventName}`, 'color: #007AFF; font-weight: bold;', { to: recipientId, from: user._id });
+      
       emit(eventName, {
         to: recipientId,
         offer,
         from: user._id,
         callerName: user.name
       });
-    }, 100);
+    } catch (err) {
+      console.error("Failed to create offer or emit signal:", err);
+    }
   };
 
   const answerCall = async () => {

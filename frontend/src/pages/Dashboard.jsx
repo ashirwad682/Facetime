@@ -3,6 +3,7 @@ import { AuthContext } from '../context/AuthContext';
 import { SocketContext } from '../context/SocketContext';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Video, Search } from 'lucide-react';
+import { getApiBase } from '../utils/api';
 
 const Dashboard = () => {
   const { user, logout, token } = useContext(AuthContext);
@@ -13,7 +14,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     if (token) {
-      const apiBase = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
+      const apiBase = getApiBase();
       fetch(`${apiBase}/api/users`, {
         headers: { Authorization: `Bearer ${token}` }
       })
