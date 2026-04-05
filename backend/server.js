@@ -46,13 +46,26 @@ app.use(express.json());
 app.post('/api/pusher/auth', (req, res) => {
   const socketId = req.body.socket_id;
   const channel = req.body.channel_name;
-  const user = JSON.parse(req.body.user_data);
   
-  const auth = pusher.authenticate(socketId, channel, {
-    user_id: user._id,
-    user_info: { name: user.name, email: user.email }
-  });
-  res.send(auth);
+  try {
+    const userDataStr = req.body.user_data;
+    const user = typeof userDataStr === 'string' ? JSON.parse(userDataStr) : userDataStr;
+    
+    if (!user || !user._id) {
+      throw new Error("Invalid user data for Pusher auth");
+    }
+
+    console.log(`Pusher Auth Handshake for user: ${user.name} (${user._id}) on channel: ${channel}`);
+    
+    const auth = pusher.authenticate(socketId, channel, {
+      user_id: user._id,
+      user_info: { name: user.name, email: user.email }
+    });
+    res.send(auth);
+  } catch (err) {
+    console.error("PUSHER AUTH ERROR:", err.message);
+    res.status(403).send("Authentication failed");
+  }
 });
 
 app.use('/api/auth', require('./routes/authRoutes'));

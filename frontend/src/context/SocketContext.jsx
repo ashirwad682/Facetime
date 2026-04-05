@@ -26,6 +26,11 @@ export const SocketProvider = ({ children }) => {
           params: {
             user_data: JSON.stringify(user)
           }
+        },
+        userAuthentication: {
+          paramsProvider: () => {
+            return { user_data: JSON.stringify(user) };
+          }
         }
       });
 
