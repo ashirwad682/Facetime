@@ -6,14 +6,22 @@ import { useNavigate } from 'react-router-dom';
 export const CallContext = createContext();
 
 const rtcConfig = {
+  // Production ICE configuration
   iceServers: [
+    // Standard STUN servers (handles Wi-Fi to Wi-Fi)
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' }
-  ]
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    
+    /** 
+     * IMPORTANT FOR MOBILE CELLULAR (LTE/5G):
+     * You should provide a TURN server here. Public TURN servers are rare. 
+     * Free trial ones are available from Twilio or Metered.ca.
+     * Example structure:
+     * { urls: 'turn:YOUR_TURN_DOMAIN:3478', username: 'user', credential: 'password' }
+     */
+  ],
+  iceCandidatePoolSize: 10,
 };
 
 // Safe sessionStorage read that won't throw in strict privacy mode
@@ -121,16 +129,16 @@ export const CallProvider = ({ children }) => {
     };
 
     const handleCallAnswered = async ({ answer }) => {
-      console.log('[WebRTC] Answer received, setting remote description');
+      if (!peerConnection.current) return;
+      console.log(`[Handshake] 2. ANSWER RECEIVED. State: ${peerConnection.current.signalingState}`);
       setCallAccepted(true);
       if (remoteUserId) sessionStorage.setItem('activeCallWith', remoteUserId);
-      if (peerConnection.current) {
-        try { 
-          await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); 
-          await processIceQueue();
-        } catch (e) {
-          console.error('[WebRTC] Error setting remote description (initiator):', e);
-        }
+      try { 
+        await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer)); 
+        console.log('[Handshake] 3. REMOTE DESCRIPTION SET (INITIATOR). Handshake final.');
+        await processIceQueue();
+      } catch (e) {
+        console.error('[Handshake] Error setting remote description (initiator):', e);
       }
     };
 
@@ -150,13 +158,15 @@ export const CallProvider = ({ children }) => {
     const handleIceCandidate = async ({ candidate }) => {
       try {
         if (peerConnection.current && peerConnection.current.remoteDescription && peerConnection.current.remoteDescription.type) {
+          console.log('[ICE] Adding remote candidate immediately');
           await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
         } else {
+          console.log('[ICE] Queuing remote candidate (Remote description not ready)');
           iceCandidatesQueue.current.push(candidate);
         }
       } catch (e) {
         if (!ignoreOffer.current) {
-          console.warn('[WebRTC] Unhandled ICE error:', e);
+          console.warn('[ICE] Failed to add candidate:', e);
         }
       }
     };
@@ -314,6 +324,7 @@ export const CallProvider = ({ children }) => {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log('[ICE] Sending local candidate to peer');
         emit('ice-candidate', {
           to: recipientId,
           candidate: event.candidate
@@ -322,7 +333,8 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] ontrack fired: ${event.track.kind}. Total remote tracks: ${remoteStreamRef.current ? remoteStreamRef.current.getTracks().length + 1 : 1}`);
+      console.log(`[WebRTC] %cONTRACK EVENT: ${event.track.kind}`, 'color: #34C759; font-weight: bold;');
+      console.log(`[WebRTC] Stream count: ${event.streams.length}, Track: ${event.track.label}`);
 
       if (!remoteStreamRef.current) {
         remoteStreamRef.current = new MediaStream();
@@ -330,22 +342,13 @@ export const CallProvider = ({ children }) => {
 
       const stream = remoteStreamRef.current;
 
-      if (event.streams && event.streams.length > 0) {
-        const incoming = event.streams[0];
-        incoming.getTracks().forEach(track => {
-          if (!stream.getTracks().find(t => t.id === track.id)) {
-            console.log(`[WebRTC] Adding track from streams[0]: ${track.kind}`);
-            stream.addTrack(track);
-          }
-        });
-      } else {
-        if (!stream.getTracks().find(t => t.id === event.track.id)) {
-          console.log(`[WebRTC] Adding track from event.track directly: ${event.track.kind}`);
-          stream.addTrack(event.track);
-        }
+      const track = event.track;
+      if (!stream.getTracks().find(t => t.id === track.id)) {
+        console.log(`[WebRTC] Attaching ${track.kind} track to remote render`);
+        stream.addTrack(track);
       }
 
-      // Force a new MediaStream reference for React state
+      // Re-trigger React lifecycle with fresh stream reference
       const freshStream = new MediaStream(stream.getTracks());
       setRemoteStreams([freshStream]);
     };
