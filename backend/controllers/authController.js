@@ -39,8 +39,16 @@ const googleAuth = async (req, res) => {
       token: generateToken(user._id),
     });
   } catch (error) {
-    console.error("Google Auth Error:", error);
-    res.status(401).json({ message: 'Google authentication failed' });
+    // IMPORTANT: Log the full error to Vercel Runtime Logs for easy debugging.
+    console.error("CRITICAL GOOGLE AUTH ERROR:", {
+      message: error.message,
+      stack: error.stack,
+      clientIdInEnv: process.env.GOOGLE_CLIENT_ID ? "PRESENT" : "MISSING",
+    });
+    
+    res.status(401).json({ 
+      message: `Google authentication failed: ${error.message}. Please check if the backend's GOOGLE_CLIENT_ID matches the frontend.` 
+    });
   }
 };
 
