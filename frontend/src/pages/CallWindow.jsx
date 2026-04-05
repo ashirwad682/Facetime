@@ -7,11 +7,24 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Video player component with rounded corners and drop‑shadow
 const VideoPlayer = ({ stream, className = '', muted = false, id }) => {
   const videoRef = useRef();
+  
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const video = videoRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      
+      // Critical for mobile: explicit play() call after setting srcObject
+      const playVideo = async () => {
+        try {
+          await video.play();
+        } catch (err) {
+          console.warn("[VideoPlayer] Autoplay blocked, waiting for interaction:", err);
+        }
+      };
+      playVideo();
     }
   }, [stream]);
+
   return (
     <video
       id={id}
@@ -19,8 +32,9 @@ const VideoPlayer = ({ stream, className = '', muted = false, id }) => {
       autoPlay
       playsInline
       muted={muted}
+      controls={false}
       disablePictureInPicture
-      className={`rounded-lg shadow-lg ${className}`}
+      className={`rounded-lg shadow-lg bg-black ${className}`}
     />
   );
 };
@@ -181,12 +195,12 @@ const CallWindow = () => {
       );
     }
     if (remoteStreams.length === 1) {
-      return <VideoPlayer stream={remoteStreams[0]} className="w-full h-full object-cover" />;
+      return <VideoPlayer key={remoteStreams[0].id} stream={remoteStreams[0]} className="w-full h-full object-cover" />;
     }
     return (
       <div className="flex flex-wrap justify-center gap-4">
-        {remoteStreams.map((stream, idx) => (
-          <div key={idx} className="video-frame w-full max-w-md">
+        {remoteStreams.map((stream) => (
+          <div key={stream.id} className="video-frame w-full max-w-md">
             <VideoPlayer stream={stream} className="w-full h-full object-cover" />
           </div>
         ))}

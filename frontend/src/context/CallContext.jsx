@@ -45,6 +45,10 @@ export const CallProvider = ({ children }) => {
 
   const peerConnection = useRef(null);
   const isNegotiating = useRef(false);
+  // Single MediaStream accumulator for remote tracks.
+  // event.streams is empty in many browser/mobile scenarios,
+  // so we build the stream manually from event.track.
+  const remoteStreamRef = useRef(null);
 
   useEffect(() => {
     // Notification API is not available on iOS Safari — guard before use
@@ -189,6 +193,9 @@ export const CallProvider = ({ children }) => {
     peerConnection.current = pc;
     isNegotiating.current = false;
 
+    // Reset the remote stream accumulator for this new connection
+    remoteStreamRef.current = new MediaStream();
+
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         emit('ice-candidate', {
@@ -199,15 +206,26 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.ontrack = (event) => {
-      setRemoteStreams(prev => {
-        const streamArray = prev.slice();
-        event.streams.forEach(stream => {
-          if (!streamArray.find(s => s.id === stream.id)) {
-            streamArray.push(stream);
+      console.log('[WebRTC] ontrack fired:', event.track.kind, 'streams:', event.streams.length);
+
+      // Primary path: event.streams is populated (Chrome desktop, most cases)
+      if (event.streams && event.streams.length > 0) {
+        const incoming = event.streams[0];
+        // Ensure every track in every incoming stream is in our accumulator
+        incoming.getTracks().forEach(track => {
+          if (!remoteStreamRef.current.getTracks().find(t => t.id === track.id)) {
+            remoteStreamRef.current.addTrack(track);
           }
         });
-        return streamArray;
-      });
+      } else {
+        // Fallback path: add the raw track directly (Firefox, Safari, mobile browsers)
+        if (!remoteStreamRef.current.getTracks().find(t => t.id === event.track.id)) {
+          remoteStreamRef.current.addTrack(event.track);
+        }
+      }
+
+      // Spread into a new array so React always detects the change and re-renders
+      setRemoteStreams([remoteStreamRef.current]);
     };
 
     pc.onnegotiationneeded = async () => {
@@ -329,6 +347,10 @@ export const CallProvider = ({ children }) => {
     }
 
     setRemoteStreams([]);
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach(t => t.stop());
+      remoteStreamRef.current = null;
+    }
   };
 
   const endCall = (remoteId) => {
