@@ -221,6 +221,13 @@ export const CallProvider = ({ children }) => {
     peerConnection.current = pc;
     isNegotiating.current = false;
 
+    // Explicitly add transceivers to ensure media direction is set correctly
+    // This is much more robust on mobile than addTrack alone.
+    if (pc.addTransceiver) {
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.addTransceiver('video', { direction: 'sendrecv' });
+    }
+
     pc.oniceconnectionstatechange = () => {
       console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
@@ -230,6 +237,15 @@ export const CallProvider = ({ children }) => {
 
     pc.onconnectionstatechange = () => {
       console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
+      if (pc.connectionState === 'connected') {
+        // Fallback: If after 5 seconds of connection we have no tracks, force renegotiation
+        setTimeout(() => {
+          if (remoteStreams.length === 0 && !callEnded && peerConnection.current) {
+            console.warn('[WebRTC] Connected but no tracks received. Triggering renegotiation fallback...');
+            if (pc.onnegotiationneeded) pc.onnegotiationneeded();
+          }
+        }, 5000);
+      }
     };
 
     pc.onicecandidate = (event) => {
@@ -242,28 +258,33 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.ontrack = (event) => {
-      console.log('[WebRTC] ontrack fired:', event.track.kind, 'streams:', event.streams.length);
+      console.log(`[WebRTC] ontrack fired: ${event.track.kind}. Total tracks now in stream: ${remoteStreamRef.current ? remoteStreamRef.current.getTracks().length + 1 : 1}`);
 
-      // Primary path: event.streams is populated (Chrome desktop, most cases)
+      if (!remoteStreamRef.current) {
+        remoteStreamRef.current = new MediaStream();
+      }
+
+      const stream = remoteStreamRef.current;
+
       if (event.streams && event.streams.length > 0) {
         const incoming = event.streams[0];
-        // Ensure every track in every incoming stream is in our accumulator
         incoming.getTracks().forEach(track => {
-          if (!remoteStreamRef.current.getTracks().find(t => t.id === track.id)) {
-            remoteStreamRef.current.addTrack(track);
+          if (!stream.getTracks().find(t => t.id === track.id)) {
+            console.log(`[WebRTC] Adding track from streams[0]: ${track.kind}`);
+            stream.addTrack(track);
           }
         });
       } else {
-        // Fallback path: add the raw track directly (Firefox, Safari, mobile browsers)
-        if (!remoteStreamRef.current.getTracks().find(t => t.id === event.track.id)) {
-          remoteStreamRef.current.addTrack(event.track);
+        if (!stream.getTracks().find(t => t.id === event.track.id)) {
+          console.log(`[WebRTC] Adding track from event.track directly: ${event.track.kind}`);
+          stream.addTrack(event.track);
         }
       }
 
       // VERY IMPORTANT: Create a NEW MediaStream object from the accumulated tracks.
       // This ensures that the stream reference and ID change, which triggers
       // React components (like VideoPlayer) to re-mount and re-initialize playback.
-      const freshStream = new MediaStream(remoteStreamRef.current.getTracks());
+      const freshStream = new MediaStream(stream.getTracks());
       setRemoteStreams([freshStream]);
     };
 
