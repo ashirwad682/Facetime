@@ -6,6 +6,14 @@ const { Server } = require('socket.io');
 const connectDB = require('./config/db');
 
 dotenv.config();
+
+// Startup Diagnostic: Ensure DB endpoint is present
+if (!process.env.MONGO_URI) {
+  console.warn("WARNING: MONGO_URI is missing in environment variables. Falling back to localhost.");
+} else {
+  console.log("MONGO_URI detected. Initiating connection...");
+}
+
 connectDB();
 
 const app = express();
