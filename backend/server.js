@@ -41,6 +41,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Pusher Auth Route for Presence Channels (Online Status)
 app.post('/api/pusher/auth', (req, res) => {

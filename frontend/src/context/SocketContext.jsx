@@ -18,10 +18,13 @@ export const SocketProvider = ({ children }) => {
       
       const pusherKey = import.meta.env.VITE_PUSHER_KEY || "c0389c21418ea0212407";
       const cluster = import.meta.env.VITE_PUSHER_CLUSTER || "ap2";
+      
+      // Force absolute backend URL to avoid Vercel relative path issues
+      const backendUrl = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:5001' : 'https://facetime-bice.vercel.app');
 
       const client = new Pusher(pusherKey, {
         cluster: cluster,
-        authEndpoint: `${apiBase}/api/pusher/auth`,
+        authEndpoint: `${backendUrl}/api/pusher/auth`,
         auth: {
           params: {
             user_data: JSON.stringify(user)
