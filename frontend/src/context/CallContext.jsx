@@ -9,6 +9,9 @@ const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:stun.anyfirewall.com:3478' },
     { urls: 'stun:stun.stunprotocol.org:3478' },
@@ -93,16 +96,17 @@ export const CallProvider = ({ children }) => {
       } catch (err) { console.error("Error setting answer", err); }
     };
 
-    const handleIceCandidate = async ({ candidate }) => {
+    const handleIceCandidate = async ({ candidate, from }) => {
       try {
         const pc = peerConnection.current;
         if (pc && pc.remoteDescription && pc.remoteDescription.type) {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } else {
+          // If we haven't set remote description yet, queue the candidate
           iceCandidatesQueue.current.push(candidate);
         }
       } catch (e) {
-        if (!ignoreOffer.current) console.warn("ICE error", e);
+        if (!ignoreOffer.current) console.warn("[WebRTC] ICE candidate error:", e);
       }
     };
 
@@ -194,6 +198,9 @@ export const CallProvider = ({ children }) => {
     polite.current = user._id < recipientId;
 
     pc.onnegotiationneeded = async () => {
+      // Guard: Don't negotiate if the connection is closing or if state is being reset
+      if (!peerConnection.current || pc.signalingState === 'closed') return;
+      
       // In Perfect Negotiation, the Responder (impolite) should never initiate 
       // a negotiation while a remote offer is still being processed.
       if (isSettingRemoteAnswerPending.current) return;
@@ -225,7 +232,22 @@ export const CallProvider = ({ children }) => {
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) emit('ice-candidate', { to: recipientId, candidate });
+      if (candidate) {
+        console.log("[WebRTC] Local ICE Candidate found");
+        emit('ice-candidate', { to: recipientId, candidate });
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE Connection State: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
+        console.warn("[WebRTC] ICE Connection failed. Attempting restart...");
+        pc.restartIce().catch(e => console.error("ICE Restart failed", e));
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection State: ${pc.connectionState}`);
     };
 
     pc.ontrack = ({ track }) => {
@@ -241,6 +263,7 @@ export const CallProvider = ({ children }) => {
 
   const callUser = async (id, isReconnect = false) => {
     setRemoteUserId(id);
+    try { sessionStorage.setItem('activeCallWith', id); } catch (e) {}
     setIsInitiator(true);
     const stream = await initLocalStream();
     if (!stream) return;
@@ -250,6 +273,7 @@ export const CallProvider = ({ children }) => {
     // Close previous connection if any
     if (peerConnection.current) {
       peerConnection.current.close();
+      peerConnection.current = null;
     }
 
     isCallAcceptedRef.current = false;
@@ -278,9 +302,13 @@ export const CallProvider = ({ children }) => {
     isCallAcceptedRef.current = true;
     setCallAccepted(true);
     setReceivingCall(false);
+    const callerId = callerInfo.from;
+    setRemoteUserId(callerId);
+    try { sessionStorage.setItem('activeCallWith', callerId); } catch (e) {}
+    
     const stream = await initLocalStream();
     if (!stream) return;
-    const pc = createPeerConnection(callerInfo.from);
+    const pc = createPeerConnection(callerId);
     
     // Use transceivers for better control on mobile
     pc.addTransceiver('audio', { direction: 'sendrecv' });
@@ -322,9 +350,22 @@ export const CallProvider = ({ children }) => {
   const declineCall = () => { setReceivingCall(false); emit('call-ended', { to: callerInfo.from }); };
 
   const leaveCall = (emitEvent = true) => {
-    setCallEnded(true); setCallAccepted(false); setReceivingCall(false);
-    if (peerConnection.current) { peerConnection.current.close(); peerConnection.current = null; }
-    if (localStream) { localStream.getTracks().forEach(t => t.stop()); setLocalStream(null); }
+    setCallEnded(true); 
+    setCallAccepted(false); 
+    setReceivingCall(false);
+    setRemoteUserId(null);
+    try { sessionStorage.removeItem('activeCallWith'); } catch (e) {}
+    
+    if (peerConnection.current) { 
+      peerConnection.current.close(); 
+      peerConnection.current = null; 
+    }
+    
+    if (localStream) { 
+      localStream.getTracks().forEach(t => t.stop()); 
+      setLocalStream(null); 
+    }
+    
     isCallAcceptedRef.current = false;
     setRemoteStreams([]);
     remoteStreamRef.current = null;

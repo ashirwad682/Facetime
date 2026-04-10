@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Video player component with rounded corners and drop‑shadow
 const VideoPlayer = React.memo(({ stream, className = '', muted = false, id }) => {
   const videoRef = useRef();
+  const [isBlocked, setIsBlocked] = useState(false);
   
   useEffect(() => {
     const video = videoRef.current;
@@ -15,10 +16,12 @@ const VideoPlayer = React.memo(({ stream, className = '', muted = false, id }) =
       
       const playVideo = async () => {
         try {
-          if (video.paused) await video.play();
+          await video.play();
+          setIsBlocked(false);
         } catch (err) {
-          if (err.name !== 'AbortError') {
-            console.warn("[VideoPlayer] Autoplay blocked:", err);
+          if (err.name === 'NotAllowedError' || err.name === 'NotSupportedError') {
+            console.warn("[VideoPlayer] Autoplay blocked, user interaction required:", err);
+            setIsBlocked(true);
           }
         }
       };
@@ -26,17 +29,36 @@ const VideoPlayer = React.memo(({ stream, className = '', muted = false, id }) =
     }
   }, [stream]);
 
+  const handleManualPlay = () => {
+    if (videoRef.current) {
+      videoRef.current.play().then(() => setIsBlocked(false)).catch(console.error);
+    }
+  };
+
   return (
-    <video
-      id={id}
-      ref={videoRef}
-      autoPlay
-      playsInline
-      muted={muted}
-      controls={false}
-      disablePictureInPicture
-      className={`rounded-lg shadow-lg bg-black object-cover w-full h-full ${className}`}
-    />
+    <div className={`relative ${className}`}>
+      <video
+        id={id}
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        controls={false}
+        disablePictureInPicture
+        className="rounded-lg shadow-lg bg-black object-cover w-full h-full"
+      />
+      {isBlocked && !muted && (
+        <div 
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 rounded-lg cursor-pointer backdrop-blur-sm"
+          onClick={handleManualPlay}
+        >
+          <div className="bg-mac-accent text-white px-6 py-3 rounded-full flex items-center gap-2 shadow-xl animate-bounce">
+            <Video size={20} />
+            <span className="font-semibold">Tap to Unmute & Join</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 });
 
@@ -199,13 +221,17 @@ const CallWindow = () => {
       );
     }
     if (remoteStreams.length === 1) {
-      return <VideoPlayer key={remoteStreams[0].id} stream={remoteStreams[0]} className="w-full h-full object-cover" />;
+      return (
+        <div className="w-full h-full flex items-center justify-center p-2 sm:p-4">
+          <VideoPlayer key={remoteStreams[0].id} stream={remoteStreams[0]} className="w-full h-full max-w-5xl aspect-video sm:aspect-auto" />
+        </div>
+      );
     }
     return (
-      <div className="flex flex-wrap justify-center gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 w-full max-w-7xl h-full items-center">
         {remoteStreams.map((stream) => (
-          <div key={stream.id} className="video-frame w-full max-w-md">
-            <VideoPlayer stream={stream} className="w-full h-full object-cover" />
+          <div key={stream.id} className="video-frame aspect-video sm:aspect-auto h-full max-h-[40vh] md:max-h-full">
+            <VideoPlayer stream={stream} className="w-full h-full" />
           </div>
         ))}
       </div>
@@ -340,7 +366,7 @@ const CallWindow = () => {
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: '100%', opacity: 0 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="absolute right-0 top-0 bottom-0 w-full sm:w-80 md:w-96 backdrop-blur-2xl bg-mac-blur/90 border-l border-mac-border shadow-2xl z-40 flex flex-col"
+            className="chat-panel absolute right-0 top-0 bottom-0 w-full sm:w-80 md:w-96 backdrop-blur-2xl bg-mac-blur/90 border-l border-mac-border shadow-2xl z-40 flex flex-col"
           >
             <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-black/20">
               <h3 className="text-white font-semibold flex items-center gap-2">
