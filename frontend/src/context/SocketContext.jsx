@@ -19,8 +19,13 @@ export const SocketProvider = ({ children }) => {
       if (pusherInstance.current && pusherInstance.current.user_id === user._id) return;
       
       const apiBase = getApiBase();
-      const pusherKey = import.meta.env.VITE_PUSHER_KEY || "c0389c21418ea0212407";
-      const cluster = import.meta.env.VITE_PUSHER_CLUSTER || "ap2";
+      const pusherKey = import.meta.env.VITE_PUSHER_KEY;
+      const cluster = import.meta.env.VITE_PUSHER_CLUSTER;
+
+      if (!pusherKey) {
+        console.error("VITE_PUSHER_KEY is missing!");
+        return;
+      }
 
       const client = new Pusher(pusherKey, {
         cluster: cluster,
@@ -94,18 +99,25 @@ export const SocketProvider = ({ children }) => {
     lastEmit.current = { event, time: now };
 
     const apiBase = getApiBase();
+    const payload = JSON.stringify({
+      channel: `private-user-${data.to}`,
+      event: event,
+      data: { ...data, from: user._id, callerName: user.name }
+    });
+
+    if (payload.length > 9500) {
+      console.warn(`%c[Pusher] WARNING: Payload size (${payload.length} bytes) is close to 10KB limit. This may fail on mobile/Pusher.`, 'color: #FF9500; font-weight: bold;');
+    }
+
     try {
       const response = await fetch(`${apiBase}/api/pusher/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channel: `private-user-${data.to}`,
-          event: event,
-          data: { ...data, from: user._id, callerName: user.name }
-        })
+        body: payload
       });
       if (!response.ok) {
-        console.warn(`[Pusher] Signaling delivery failed (possible key mismatch): ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.warn(`[Pusher] Signaling delivery failed: ${response.status} - ${errorData.message || 'Unknown error'}`);
       }
     } catch (err) { 
       console.warn("[Pusher] Network error during signaling", err);

@@ -44,20 +44,31 @@ export const CallProvider = ({ children }) => {
   const polite = useRef(false); 
   const remoteStreamRef = useRef(null);
   const iceCandidatesQueue = useRef([]);
+  const isCallAcceptedRef = useRef(false);
 
   const setBitrate = (sdp) => {
-    // Priority for H264 on mobile (iOS/Android)
-    let mangled = sdp.replace(/a=mid:video\r\n/g, 'a=mid:video\r\nb=AS:500\r\n');
-    if (mangled.includes('H264/90000')) {
-      const parts = mangled.split('m=video');
-      const lines = parts[1].split('\r\n');
-      const h264Line = lines.find(l => l.includes('H264/90000'));
-      if (h264Line) {
-        const pt = h264Line.split(' ')[0].split(':')[1];
-        mangled = mangled.replace(`m=video 9 UDP/TLS/RTP/SAVPF`, `m=video 9 UDP/TLS/RTP/SAVPF ${pt}`);
+    try {
+      let lines = sdp.split('\r\n');
+      
+      // 1. Bitrate limiting
+      let videoIndex = lines.findIndex(l => l.startsWith('m=video'));
+      if (videoIndex !== -1) {
+        let midIndex = lines.findIndex((l, i) => i > videoIndex && l.startsWith('a=mid:video'));
+        if (midIndex !== -1) {
+          lines.splice(midIndex + 1, 0, 'b=AS:800');
+        }
       }
+
+      // 2. SDP Trimming for Pusher 10KB compatibility
+      // Remove verbose extension maps and non-essential candidates
+      return lines.filter(line => {
+        if (line.startsWith('a=extmap:')) return false; // Remove extension maps
+        if (line.startsWith('a=rtcp-fb:') && !line.includes('nack') && !line.includes('goog-remb')) return false;
+        return true;
+      }).join('\r\n');
+    } catch (e) {
+      return sdp;
     }
-    return mangled;
   };
 
   useEffect(() => {
@@ -74,6 +85,7 @@ export const CallProvider = ({ children }) => {
     const handleCallAnswered = async ({ answer }) => {
       if (!peerConnection.current) return;
       console.log('[Signaling] Answer received');
+      isCallAcceptedRef.current = true;
       setCallAccepted(true);
       try {
         await peerConnection.current.setRemoteDescription(new RTCSessionDescription(answer));
@@ -158,13 +170,22 @@ export const CallProvider = ({ children }) => {
   const initLocalStream = async () => {
     if (localStream && localStream.active) return localStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 854 }, height: { ideal: 480 }, frameRate: { ideal: 20 }, facingMode: 'user' },
+      const constraints = {
+        video: { 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 }, 
+          facingMode: 'user' 
+        },
         audio: true
-      });
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setLocalStream(stream);
       return stream;
-    } catch (err) { return null; }
+    } catch (err) {
+      console.error("Local stream init failed:", err);
+      return null;
+    }
   };
 
   const createPeerConnection = (recipientId) => {
@@ -188,7 +209,7 @@ export const CallProvider = ({ children }) => {
         
         // If the call hasn't been accepted yet, this is the very first 'Incoming Call'
         // If it has been accepted, this is a renegotiation (e.g. screen share)
-        const eventName = callAccepted ? 'renegotiate-offer' : 'incoming-call';
+        const eventName = isCallAcceptedRef.current ? 'renegotiate-offer' : 'incoming-call';
         
         emit(eventName, { 
           to: recipientId, 
@@ -231,6 +252,7 @@ export const CallProvider = ({ children }) => {
       peerConnection.current.close();
     }
 
+    isCallAcceptedRef.current = false;
     const pc = createPeerConnection(id);
     
     // Use transceivers for better control on mobile
@@ -253,6 +275,7 @@ export const CallProvider = ({ children }) => {
   };
 
   const answerCall = async () => {
+    isCallAcceptedRef.current = true;
     setCallAccepted(true);
     setReceivingCall(false);
     const stream = await initLocalStream();
@@ -302,6 +325,7 @@ export const CallProvider = ({ children }) => {
     setCallEnded(true); setCallAccepted(false); setReceivingCall(false);
     if (peerConnection.current) { peerConnection.current.close(); peerConnection.current = null; }
     if (localStream) { localStream.getTracks().forEach(t => t.stop()); setLocalStream(null); }
+    isCallAcceptedRef.current = false;
     setRemoteStreams([]);
     remoteStreamRef.current = null;
     iceCandidatesQueue.current = [];

@@ -3,6 +3,7 @@ import { AuthContext } from '../context/AuthContext';
 import { SocketContext } from '../context/SocketContext';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, Video, Search } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { getApiBase } from '../utils/api';
 
 const Dashboard = () => {
@@ -36,8 +37,17 @@ const Dashboard = () => {
     navigate('/login');
   };
 
-  const handleCall = (recipient) => {
-    navigate(`/call/${recipient._id}`, { state: { recipient } });
+  const handleCall = async (recipient) => {
+    try {
+      // Trigger user-gesture permission prompt for mobile browsers
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      // Stop the stream immediately, it will be re-acquired in CallWindow
+      stream.getTracks().forEach(track => track.stop());
+      navigate(`/call/${recipient._id}`, { state: { recipient } });
+    } catch (err) {
+      console.error("Camera/Mic permission denied:", err);
+      alert("Please enable camera and microphone access to start a video call.");
+    }
   };
 
   const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
@@ -74,11 +84,22 @@ const Dashboard = () => {
           </div>
         </div>
 
-        <div className="space-y-4">
-          {filteredUsers.map((u) => {
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="space-y-4"
+        >
+          {filteredUsers.map((u, index) => {
             const isOnline = onlineUsers.includes(u._id);
             return (
-              <div key={u._id} className="backdrop-blur-md bg-mac-blur border border-mac-border p-4 rounded-2xl flex items-center justify-between hover:bg-mac-gray transition group">
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.05 }}
+                key={u._id} 
+                className="backdrop-blur-md bg-mac-blur border border-mac-border p-4 rounded-2xl flex items-center justify-between hover:bg-mac-gray transition group shadow-sm hover:shadow-mac-accent/10"
+              >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold shadow-lg">
                     {u.name.charAt(0).toUpperCase()}
@@ -93,11 +114,11 @@ const Dashboard = () => {
                 </div>
                 <button
                   onClick={() => handleCall(u)}
-                  className="bg-mac-green hover:bg-green-500 text-white p-3 rounded-full shadow-[0_4px_14px_rgba(52,199,89,0.39)] transition group-hover:scale-110"
+                  className="bg-mac-green hover:bg-green-500 text-white p-3 rounded-full shadow-[0_4px_14px_rgba(52,199,89,0.39)] transition group-hover:scale-110 active:scale-95"
                 >
                   <Video size={20} />
                 </button>
-              </div>
+              </motion.div>
             );
           })}
           {filteredUsers.length === 0 && (
@@ -105,7 +126,7 @@ const Dashboard = () => {
               No users found.
             </div>
           )}
-        </div>
+        </motion.div>
       </div>
     </div>
   );
