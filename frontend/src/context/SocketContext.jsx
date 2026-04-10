@@ -19,8 +19,8 @@ export const SocketProvider = ({ children }) => {
       if (pusherInstance.current && pusherInstance.current.user_id === user._id) return;
       
       const apiBase = getApiBase();
-      const pusherKey = import.meta.env.VITE_PUSHER_KEY;
-      const cluster = import.meta.env.VITE_PUSHER_CLUSTER;
+      const pusherKey = import.meta.env.VITE_PUSHER_KEY || "c0389c21418ea0212407";
+      const cluster = import.meta.env.VITE_PUSHER_CLUSTER || "ap2";
 
       if (!pusherKey) {
         console.error("VITE_PUSHER_KEY is missing!");

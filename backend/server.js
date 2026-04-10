@@ -19,10 +19,10 @@ const app = express();
 app.set('trust proxy', 1);
 
 const pusher = new Pusher({
-  appId: process.env.PUSHER_APP_ID,
-  key: process.env.PUSHER_KEY,
-  secret: process.env.PUSHER_SECRET,
-  cluster: process.env.PUSHER_CLUSTER,
+  appId: process.env.PUSHER_APP_ID || "2137148",
+  key: process.env.PUSHER_KEY || "c0389c21418ea0212407",
+  secret: process.env.PUSHER_SECRET || "c10ca19b442e01c88e55",
+  cluster: process.env.PUSHER_CLUSTER || "ap2",
   useTLS: true
 });
 
