@@ -65,16 +65,19 @@ export const SocketProvider = ({ children }) => {
 
       channel.bind('pusher:subscription_succeeded', (members) => {
         const users = [];
-        members.each((member) => users.push(member.id));
+        members.each((member) => users.push(String(member.id)));
+        console.log(`%c[Pusher] Online Users: ${users.length}`, 'color: #0A84FF; font-weight: bold;', users);
         setOnlineUsers(users);
       });
 
       channel.bind('pusher:member_added', (member) => {
-        setOnlineUsers((prev) => [...new Set([...prev, member.id])]);
+        console.log(`%c[Pusher] User Online: ${member.info.name}`, 'color: #34C759;');
+        setOnlineUsers((prev) => [...new Set([...prev, String(member.id)])]);
       });
 
       channel.bind('pusher:member_removed', (member) => {
-        setOnlineUsers((prev) => prev.filter((id) => id !== member.id));
+        console.log(`%c[Pusher] User Offline: ${member.info.name}`, 'color: #FF3B30;');
+        setOnlineUsers((prev) => prev.filter((id) => id !== String(member.id)));
       });
 
       return () => {
@@ -102,7 +105,7 @@ export const SocketProvider = ({ children }) => {
     const payload = JSON.stringify({
       channel: `private-user-${data.to}`,
       event: event,
-      data: { ...data, from: user._id, callerName: user.name }
+      data: { ...data, from: String(user._id), callerName: user.name }
     });
 
     if (payload.length > 9500) {

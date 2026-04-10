@@ -85,7 +85,7 @@ app.post('/api/pusher/auth', (req, res) => {
     console.log(`Pusher Auth Handshake for user: ${user.name} (${user._id}) on channel: ${channel}`);
     
     const auth = pusher.authenticate(socketId, channel, {
-      user_id: user._id,
+      user_id: String(user._id),
       user_info: { name: user.name, email: user.email }
     });
     res.send(auth);
